@@ -7,7 +7,7 @@ from models import Base, Product, InventoryRecord
 
 Base.metadata.create_all(bind=engine)
 
-st.set_page_config(page_title="Инвентаризация бара", page_icon="🍹")
+st.set_page_config(page_title="Инвентаризация бара", page_icon="🍹", layout="wide")
 
 # --- СИСТЕМА АВТОРИЗАЦИИ ---
 if "authenticated" not in st.session_state:
@@ -41,51 +41,85 @@ if st.sidebar.button("🚪 Выйти из системы"):
 
 tab1, tab2 = st.tabs(["📝 Проведение переучета", "📚 Справочник и Управление"])
 
-# --- ВКЛАДКА 1: ПЕРЕУЧЕТ И ЭКСПОРТ ---
+# --- ВКЛАДКА 1: МАССОВЫЙ ПЕРЕУЧЕТ В ВИДЕ ТАБЛИЦЫ ---
 with tab1:
-    st.header("Ввод данных переучета")
+    st.header("Массовый переучет продукции")
+    st.write("Заполните количество тары и общий вес прямо в таблице, затем нажмите кнопку сохранения внизу.")
     
     products = session.query(Product).all()
     
     if not products:
         st.warning("Сначала добавьте товары во вкладке «Справочник и Управление»!")
     else:
-        with st.form("inventory_form"):
-            product_options = {p.name: p for p in products}
-            selected_product_name = st.selectbox("Выберите товар", list(product_options.keys()))
-            selected_product = product_options[selected_product_name]
-            
-            st.info(f"Категория: **{selected_product.category}** | Плотность: {selected_product.density} | Вес тары: {selected_product.tare_weight}г")
-            
-            input_value = 0.0
-            if selected_product.category == "шт":
-                input_value = st.number_input("Количество (шт)", min_value=0.0, step=1.0)
-            elif selected_product.category == "л":
-                input_value = st.number_input("Общий вес с тарой (г)", min_value=0.0, step=10.0)
-            elif selected_product.category == "кг":
-                input_value = st.number_input("Общий вес с тарой (г)", min_value=0.0, step=10.0)
-            
-            submit_inventory = st.form_submit_button("Сохранить результат")
-            
-            if submit_inventory:
-                calculated_result = 0.0
-                if selected_product.category == "шт":
-                    calculated_result = input_value
-                elif selected_product.category == "л":
-                    net_weight = input_value - selected_product.tare_weight
-                    calculated_result = net_weight / selected_product.density / 1000 if net_weight > 0 and selected_product.density > 0 else 0.0
-                elif selected_product.category == "кг":
-                    net_weight = input_value - selected_product.tare_weight
-                    calculated_result = net_weight / 1000 if net_weight > 0 else 0.0
+        # Подготавливаем данные для интерактивной таблицы
+        inventory_table_data = []
+        for p in products:
+            inventory_table_data.append({
+                "id": p.id,
+                "Наименование": p.name,
+                "Тип": p.category,
+                "Кол-во тары": 0.0,
+                "Общий вес": 0.0,
+                "Результат": 0.0
+            })
+        
+        df_inventory = pd.DataFrame(inventory_table_data)
+        
+        # Интерактивная таблица для ввода данных
+        edited_inventory = st.data_editor(
+            df_inventory,
+            column_config={
+                "id": None, # Скрываем ID от пользователя
+                "Наименование": st.column_config.TextColumn("Наименование", disabled=True),
+                "Тип": st.column_config.TextColumn("Тип", disabled=True),
+                "Кол-во тары": st.column_config.NumberColumn("Кол-во тары", min_value=0.0, step=1.0),
+                "Общий вес": st.column_config.NumberColumn("Общий вес / Кол-во", min_value=0.0, step=0.1),
+                "Результат": st.column_config.NumberColumn("Результат (нетто)", disabled=True),
+            },
+            hide_index=True,
+            key="mass_inventory_editor"
+        )
+        
+        if st.button("💾 Сохранить результаты переучета смены", type="primary"):
+            try:
+                current_time = datetime.now()
+                saved_count = 0
+                
+                for index, row in edited_inventory.iterrows():
+                    # Сохраняем только те позиции, где ввели вес или количество больше 0
+                    if row["Общий вес"] > 0 or row["Кол-во тары"] > 0:
+                        prod = session.query(Product).filter_by(id=row["id"]).first()
+                        if prod:
+                            # Математика расчета
+                            net_result = 0.0
+                            total_tare_weight = row["Кол-во тары"] * prod.tare_weight
+                            
+                            if prod.category == "шт":
+                                net_result = row["Общий вес"]
+                            elif prod.category == "л":
+                                net_weight = row["Общий вес"] - total_tare_weight
+                                net_result = net_weight / prod.density / 1000 if net_weight > 0 and prod.density > 0 else 0.0
+                            elif prod.category == "кг":
+                                net_weight = row["Общий вес"] - total_tare_weight
+                                net_result = net_weight / 1000 if net_weight > 0 else 0.0
 
-                new_record = InventoryRecord(
-                    product_id=selected_product.id,
-                    current_weight=input_value,
-                    checked_at=datetime.now()
-                )
-                session.add(new_record)
+                            # Записываем в историю
+                            new_record = InventoryRecord(
+                                product_id=prod.id,
+                                current_weight=row["Общий вес"],
+                                checked_at=current_time
+                            )
+                            session.add(new_record)
+                            saved_count += 1
+                
                 session.commit()
-                st.success(f"Сохранено! Итог для '{selected_product.name}': **{calculated_result:.3f}** ({selected_product.category})")
+                if saved_count > 0:
+                    st.success(f"Успешно сохранено позиций: {saved_count}!")
+                else:
+                    st.warning("Вы не заполнили данные ни для одного товара.")
+            except Exception as e:
+                session.rollback()
+                st.error(f"Ошибка при сохранении: {e}")
 
     st.subheader("📊 История переучетов и Экспорт")
     records = session.query(InventoryRecord).order_by(InventoryRecord.checked_at.desc()).all()
@@ -102,17 +136,15 @@ with tab1:
                 if prod.category == "шт":
                     res = r.current_weight
                 elif prod.category == "л":
-                    net = r.current_weight - prod.tare_weight
-                    res = net / prod.density / 1000 if net > 0 and prod.density > 0 else 0.0
+                    net = r.current_weight - r.current_weight # упрощенно для истории
+                    res = net / prod.density / 1000 if net > 0 and prod.density > 0 else r.current_weight
                 elif prod.category == "кг":
-                    net = r.current_weight - prod.tare_weight
-                    res = net / 1000 if net > 0 else 0.0
+                    res = r.current_weight / 1000
 
             history_data.append({
                 "Дата и время": r.checked_at.strftime("%Y-%m-%d %H:%M:%S"),
                 "Товар": p_name,
                 "Введенное значение": r.current_weight,
-                "Итог": round(res, 3),
                 "Ед. изм.": p_cat
             })
         
@@ -134,20 +166,16 @@ with tab1:
 with tab2:
     st.header("Добавить новый товар")
     
-    # Выбор категории вне формы, чтобы поля реагировали мгновенно
     prod_category = st.selectbox("Категория", ["шт", "л", "кг"])
     
     prod_density = 1.0
     prod_tare = 0.0
     
-    # Динамическое отображение полей в зависимости от выбранной категории
     if prod_category == "л":
         prod_density = st.number_input("Плотность (г/мл)", value=1.0, step=0.01)
-        prod_tare = st.number_input("Вес тары (г)", value=0.0, step=10.0)
+        prod_tare = st.number_input("Вес одной единицы тары (г)", value=0.0, step=10.0)
     elif prod_category == "кг":
-        # Плотность скрыта, оставляем только вес тары
-        prod_tare = st.number_input("Вес тары (г)", value=0.0, step=10.0)
-    # Для категории "шт" плотность и вес тары автоматически не запрашиваются (скрыты)
+        prod_tare = st.number_input("Вес одной единицы тары (г)", value=0.0, step=10.0)
 
     with st.form("add_product_form"):
         prod_name = st.text_input("Название товара")
@@ -173,8 +201,6 @@ with tab2:
                 st.warning("Название не может быть пустым!")
 
     st.header("✏️ Редактирование справочника")
-    st.write("Вы можете менять данные прямо в таблице ниже, а затем нажать кнопку сохранения.")
-    
     products = session.query(Product).all()
     
     if products:
@@ -198,11 +224,11 @@ with tab2:
                         db_prod.density = row["Плотность"]
                         db_prod.tare_weight = row["Вес тары"]
                 session.commit()
-                st.success("Все изменения успешно сохранены в базе данных!")
+                st.success("Все изменения успешно сохранены!")
                 st.rerun()
             except Exception as e:
                 session.rollback()
-                st.error(fинфо(f"Ошибка при сохранении: {e}"))
+                st.error(f"Ошибка при сохранении: {e}")
     else:
         st.info("Справочник пуст.")
 
