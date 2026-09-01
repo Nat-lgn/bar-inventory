@@ -41,87 +41,76 @@ if st.sidebar.button("🚪 Выйти из системы"):
 
 tab1, tab2, tab3 = st.tabs(["📝 Переучет продукции", "📊 История и Экспорт", "📚 Справочник и Управление"])
 
-# --- ВКЛАДКА 1: МАССОВЫЙ ПЕРЕУЧЕТ ---
+# --- ВКЛАДКА 1: ПЕРЕУЧЕТ ПО ОТДЕЛЬНЫМ ПОЛЯМ ДЛЯ КАЖДОГО ТОВАРА ---
 with tab1:
-    st.header("Массовый переучет продукции")
-    st.write("Заполните данные по позициям. Посчитанные товары автоматически переместятся в низ таблицы.")
+    st.header("Проведение переучета")
+    st.write("Введите данные для каждого товара. Посчитанные позиции можно сохранить кнопкой внизу.")
     
     products = session.query(Product).all()
     
     if not products:
         st.warning("Сначала добавьте товары во вкладке «Справочник и Управление»!")
     else:
-        inventory_table_data = []
-        for p in products:
-            inventory_table_data.append({
-                "id": p.id,
-                "Наименование": p.name,
-                "Тип": p.category,
-                "Кол-во тары": 0.0,
-                "Общий вес": 0.0,
-                "Результат": 0.0
-            })
-        
-        df_inventory = pd.DataFrame(inventory_table_data)
-        
-        # Смещение заполненных позиций вниз
-        df_inventory["_is_counted"] = (df_inventory["Общий вес"] > 0) | (df_inventory["Кол-во тары"] > 0)
-        df_inventory = df_inventory.sort_values(by="_is_counted", ascending=True).drop(columns=["_is_counted"])
-
-        edited_inventory = st.data_editor(
-            df_inventory,
-            column_config={
-                "id": None,
-                "Наименование": st.column_config.TextColumn("Наименование", disabled=True),
-                "Тип": st.column_config.TextColumn("Тип", disabled=True),
-                "Кол-во тары": st.column_config.NumberColumn("Кол-во тары", min_value=0.0, step=1.0),
-                "Общий вес": st.column_config.NumberColumn("Общий вес / Кол-во", min_value=0.0, step=0.1),
-                "Результат": st.column_config.NumberColumn("Результат (нетто)", disabled=True),
-            },
-            hide_index=True,
-            key="mass_inventory_editor",
-            num_rows="fixed"
-        )
-        
-        if st.button("💾 Сохранить результаты переучета смены", type="primary"):
-            try:
-                current_time = datetime.now()
-                saved_count = 0
+        with st.form("inventory_cards_form"):
+            inventory_inputs = {}
+            
+            for p in products:
+                st.markdown(f"### 🔹 {p.name} <span style='font-size:14px; color:gray;'>(Тип: {p.category})</span>", unsafe_allow_html=True)
                 
-                for index, row in edited_inventory.iterrows():
-                    if row["Общий вес"] > 0 or row["Кол-во тары"] > 0:
-                        prod = session.query(Product).filter_by(id=row["id"]).first()
-                        if prod:
-                            net_result = 0.0
-                            total_tare_weight = row["Кол-во тары"] * prod.tare_weight
-                            
-                            if prod.category == "шт":
-                                net_result = row["Общий вес"]
-                            elif prod.category == "л":
-                                net_weight = row["Общий вес"] - total_tare_weight
-                                net_result = net_weight / prod.density / 1000 if net_weight > 0 and prod.density > 0 else 0.0
-                            elif prod.category == "кг":
-                                # Если вес тары не задан или равен 0, тара не отнимается
-                                net_weight = row["Общий вес"] - total_tare_weight if total_tare_weight > 0 else row["Общий вес"]
-                                net_result = net_weight if net_weight > 0 else 0.0
-
+                if p.category == "шт":
+                    # Только одно поле для ввода результата
+                    res_val = st.number_input(f"Количество штук [{p.name}]", min_value=0.0, step=1.0, key=f"val_{p.id}")
+                    inventory_inputs[p.id] = {"tare_count": 0.0, "total_weight": res_val, "result": res_val}
+                
+                elif p.category in ["кг", "л"]:
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        tare_count = st.number_input(f"Кол-во тары [{p.name}]", min_value=0.0, step=1.0, key=f"tare_{p.id}")
+                    with col2:
+                        total_weight = st.number_input(f"Общий вес (г) [{p.name}]", min_value=0.0, step=10.0, key=f"weight_{p.id}")
+                    with col3:
+                        # Автоматический расчет результата «на лету» для отображения
+                        total_tare_weight = tare_count * p.tare_weight
+                        net_result = 0.0
+                        if p.category == "л":
+                            net_weight = total_weight - total_tare_weight if total_weight > total_tare_weight else 0.0
+                            net_result = net_weight / p.density / 1000 if p.density > 0 else 0.0
+                        elif p.category == "кг":
+                            net_weight = total_weight - total_tare_weight if total_tare_weight > 0 else total_weight
+                            net_result = net_weight if net_weight > 0 else 0.0
+                        
+                        st.metric(label="Результат (нетто)", value=f"{net_result:.3f} {p.category}")
+                    
+                    inventory_inputs[p.id] = {"tare_count": tare_count, "total_weight": total_weight, "result": net_result}
+                
+                st.divider()
+            
+            submit_all = st.form_submit_button("💾 Сохранить результаты переучета смены", type="primary")
+            
+            if submit_all:
+                try:
+                    current_time = datetime.now()
+                    saved_count = 0
+                    
+                    for p_id, data in inventory_inputs.items():
+                        if data["total_weight"] > 0 or data["tare_count"] > 0:
                             new_record = InventoryRecord(
-                                product_id=prod.id,
-                                current_weight=row["Общий вес"],
+                                product_id=p_id,
+                                current_weight=data["total_weight"],
                                 checked_at=current_time
                             )
                             session.add(new_record)
                             saved_count += 1
-                
-                session.commit()
-                if saved_count > 0:
-                    st.success(f"Успешно сохранено позиций: {saved_count}!")
-                    st.rerun()
-                else:
-                    st.warning("Вы не заполнили данные ни для одного товара.")
-            except Exception as e:
-                session.rollback()
-                st.error(f"Ошибка при сохранении: {e}")
+                    
+                    session.commit()
+                    if saved_count > 0:
+                        st.success(f"Успешно сохранено позиций: {saved_count}!")
+                        st.rerun()
+                    else:
+                        st.warning("Вы не заполнили данные ни для одного товара.")
+                except Exception as e:
+                    session.rollback()
+                    st.error(f"Ошибка при сохранении: {e}")
 
 
 # --- ВКЛАДКА 2: ИСТОРИЯ ПО ДАТАМ И ЭКСПОРТ ---
@@ -131,10 +120,9 @@ with tab2:
     records = session.query(InventoryRecord).order_by(InventoryRecord.checked_at.desc()).all()
     
     if records:
-        # Группируем записи по датам (YYYY-MM-DD)
         dates_dict = {}
         for r in records:
-            date_str = r.checked_at.strftime("%Y-%m-%d %H:%M") # с точностью до минут смены
+            date_str = r.checked_at.strftime("%Y-%m-%d %H:%M")
             if date_str not in dates_dict:
                 dates_dict[date_str] = []
             dates_dict[date_str].append(r)
@@ -152,7 +140,7 @@ with tab2:
                 history_data.append({
                     "Товар": p_name,
                     "Тип": p_cat,
-                    "Введенный вес/кол-во": r.current_weight
+                    "Введенное значение": r.current_weight
                 })
             
             df_history = pd.DataFrame(history_data)
@@ -169,7 +157,7 @@ with tab2:
         st.info("История переучетов пока пуста.")
 
 
-# --- ВКЛАДКА 3: СПРАВОЧНИК И УПРАВЛЕНИЕ ---
+# --- ВКЛАДКА 3: СПРАВОЧНИК И УПРАВЛЕНИЕ (ДОБАВЛЕНИЕ, РЕДАКТИРОВАНИЕ, УДАЛЕНИЕ) ---
 with tab3:
     st.header("Добавить новый товар")
     
@@ -178,14 +166,11 @@ with tab3:
     prod_density = 1.0
     prod_tare = 0.0
     
-    # Условия отображения параметров в зависимости от категории
     if prod_category == "л":
         prod_density = st.number_input("Плотность (г/мл)", value=1.0, step=0.01)
         prod_tare = st.number_input("Вес одной единицы тары (г)", value=0.0, step=10.0)
     elif prod_category == "кг":
-        # Для кг плотность скрыта, оставляем только вес тары
         prod_tare = st.number_input("Вес одной единицы тары (г)", value=0.0, step=10.0)
-    # Для категории "шт" и плотность, и вес тары автоматически скрыты и равны 0
 
     with st.form("add_product_form"):
         prod_name = st.text_input("Название товара")
@@ -210,10 +195,11 @@ with tab3:
             else:
                 st.warning("Название не может быть пустым!")
 
-    st.header("✏️ Редактирование справочника")
+    st.header("✏️ Редактирование и удаление справочника")
     products = session.query(Product).all()
     
     if products:
+        # Интерактивное редактирование
         df_products = pd.DataFrame([{
             "id": p.id,
             "Название": p.name,
@@ -239,6 +225,17 @@ with tab3:
             except Exception as e:
                 session.rollback()
                 st.error(f"Ошибка при сохранении: {e}")
+        
+        st.divider()
+        st.subheader("🗑️ Удаление товара")
+        prod_to_delete = st.selectbox("Выберите товар для удаления", [p.name for p in products], key="del_select")
+        if st.button("Удалить выбранный товар", type="secondary"):
+            target = session.query(Product).filter_by(name=prod_to_delete).first()
+            if target:
+                session.delete(target)
+                session.commit()
+                st.success(f"Товар '{prod_to_delete}' удален из справочника!")
+                st.rerun()
     else:
         st.info("Справочник пуст.")
 
