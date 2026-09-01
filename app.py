@@ -39,19 +39,20 @@ if st.sidebar.button("🚪 Выйти из системы"):
     st.session_state.authenticated = False
     st.rerun()
 
-tab1, tab2 = st.tabs(["📝 Проведение переучета", "📚 Справочник и Управление"])
+# Создаем три полноценные вкладки
+tab1, tab2, tab3 = st.tabs(["📝 Переучет продукции", "📊 История и Экспорт", "📚 Справочник и Управление"])
 
-# --- ВКЛАДКА 1: МАССОВЫЙ ПЕРЕУЧЕТ В ВИДЕ ТАБЛИЦЫ ---
+# --- ВКЛАДКА 1: МАССОВЫЙ ПЕРЕУЧЕТ С АВТОМАТИЧЕСКИМ СМЕЩЕНИЕМ ВНИЗ ---
 with tab1:
     st.header("Массовый переучет продукции")
-    st.write("Заполните количество тары и общий вес прямо в таблице, затем нажмите кнопку сохранения внизу.")
+    st.write("Заполните данные по позициям. Посчитанные товары автоматически переместятся в низ таблицы.")
     
     products = session.query(Product).all()
     
     if not products:
         st.warning("Сначала добавьте товары во вкладке «Справочник и Управление»!")
     else:
-        # Подготавливаем данные для интерактивной таблицы
+        # Собираем данные
         inventory_table_data = []
         for p in products:
             inventory_table_data.append({
@@ -65,11 +66,15 @@ with tab1:
         
         df_inventory = pd.DataFrame(inventory_table_data)
         
-        # Интерактивная таблица для ввода данных
+        # Сортировка: сначала те, где Общий вес и Кол-во тары равны 0 (непосчитанные),
+        # затем те, которые уже заполнены (уходят вниз)
+        df_inventory["_is_counted"] = (df_inventory["Общий вес"] > 0) | (df_inventory["Кол-во тары"] > 0)
+        df_inventory = df_inventory.sort_values(by="_is_counted", ascending=True).drop(columns=["_is_counted"])
+
         edited_inventory = st.data_editor(
             df_inventory,
             column_config={
-                "id": None, # Скрываем ID от пользователя
+                "id": None,
                 "Наименование": st.column_config.TextColumn("Наименование", disabled=True),
                 "Тип": st.column_config.TextColumn("Тип", disabled=True),
                 "Кол-во тары": st.column_config.NumberColumn("Кол-во тары", min_value=0.0, step=1.0),
@@ -77,7 +82,8 @@ with tab1:
                 "Результат": st.column_config.NumberColumn("Результат (нетто)", disabled=True),
             },
             hide_index=True,
-            key="mass_inventory_editor"
+            key="mass_inventory_editor",
+            num_rows="fixed"
         )
         
         if st.button("💾 Сохранить результаты переучета смены", type="primary"):
@@ -86,11 +92,9 @@ with tab1:
                 saved_count = 0
                 
                 for index, row in edited_inventory.iterrows():
-                    # Сохраняем только те позиции, где ввели вес или количество больше 0
                     if row["Общий вес"] > 0 or row["Кол-во тары"] > 0:
                         prod = session.query(Product).filter_by(id=row["id"]).first()
                         if prod:
-                            # Математика расчета
                             net_result = 0.0
                             total_tare_weight = row["Кол-во тары"] * prod.tare_weight
                             
@@ -103,7 +107,6 @@ with tab1:
                                 net_weight = row["Общий вес"] - total_tare_weight
                                 net_result = net_weight / 1000 if net_weight > 0 else 0.0
 
-                            # Записываем в историю
                             new_record = InventoryRecord(
                                 product_id=prod.id,
                                 current_weight=row["Общий вес"],
@@ -115,13 +118,18 @@ with tab1:
                 session.commit()
                 if saved_count > 0:
                     st.success(f"Успешно сохранено позиций: {saved_count}!")
+                    st.rerun()
                 else:
                     st.warning("Вы не заполнили данные ни для одного товара.")
             except Exception as e:
                 session.rollback()
                 st.error(f"Ошибка при сохранении: {e}")
 
-    st.subheader("📊 История переучетов и Экспорт")
+
+# --- ВКЛАДКА 2: ИСТОРИЯ И ЭКСПОРТ ---
+with tab2:
+    st.header("📊 История переучетов и Экспорт отчетов")
+    
     records = session.query(InventoryRecord).order_by(InventoryRecord.checked_at.desc()).all()
     
     if records:
@@ -131,16 +139,6 @@ with tab1:
             p_name = prod.name if prod else "Удаленный товар"
             p_cat = prod.category if prod else ""
             
-            res = 0.0
-            if prod:
-                if prod.category == "шт":
-                    res = r.current_weight
-                elif prod.category == "л":
-                    net = r.current_weight - r.current_weight # упрощенно для истории
-                    res = net / prod.density / 1000 if net > 0 and prod.density > 0 else r.current_weight
-                elif prod.category == "кг":
-                    res = r.current_weight / 1000
-
             history_data.append({
                 "Дата и время": r.checked_at.strftime("%Y-%m-%d %H:%M:%S"),
                 "Товар": p_name,
@@ -162,8 +160,8 @@ with tab1:
         st.info("История переучетов пока пуста.")
 
 
-# --- ВКЛАДКА 2: СПРАВОЧНИК И УПРАВЛЕНИЕ ---
-with tab2:
+# --- ВКЛАДКА 3: СПРАВОЧНИК И УПРАВЛЕНИЕ ---
+with tab3:
     st.header("Добавить новый товар")
     
     prod_category = st.selectbox("Категория", ["шт", "л", "кг"])
