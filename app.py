@@ -5,10 +5,8 @@ from datetime import datetime
 from database import Session, engine
 from models import Base, Product, InventoryRecord
 
-# Создаем таблицы, если их нет
 Base.metadata.create_all(bind=engine)
 
-# Настройка страницы
 st.set_page_config(page_title="Инвентаризация бара", page_icon="🍹")
 
 # --- СИСТЕМА АВТОРИЗАЦИИ ---
@@ -24,24 +22,19 @@ if not st.session_state.authenticated:
         submit_login = st.form_submit_button("Войти")
         
         if submit_login:
-            # Простейшая проверка пароля (в будущем можно вынести в st.secrets)
-            # Здесь ты можешь изменить "bar123" на свой надежный пароль
             if password_input == "bar123":
                 st.session_state.authenticated = True
                 st.success("Успешный вход!")
                 st.rerun()
             else:
                 st.error("Неверный пароль. Попробуйте еще раз.")
-    
-    # Останавливаем выполнение кода страницы, пока пользователь не вошел
     st.stop()
 
-# --- ОСНОВНОЙ ИНТЕРФЕЙС (доступен только после входа) ---
+# --- ОСНОВНОЙ ИНТЕРФЕЙС ---
 session = Session()
 
 st.title("🍹 Система инвентаризации бара")
 
-# Кнопка выхода из системы в сайдбаре
 if st.sidebar.button("🚪 Выйти из системы"):
     st.session_state.authenticated = False
     st.rerun()
@@ -128,7 +121,7 @@ with tab1:
         st.info("История переучетов пока пуста.")
 
 
-# --- ВКЛАДКА 2: СПРАВОЧНИК, РЕДАКТИРОВАНИЕ И УДАЛЕНИЕ ---
+# --- ВКЛАДКА 2: СПРАВОЧНИК И ИТЕРАТИВНОЕ РЕДАКТИРОВАНИЕ ---
 with tab2:
     st.header("Добавить новый товар")
     with st.form("add_product_form"):
@@ -158,39 +151,40 @@ with tab2:
             else:
                 st.warning("Название не может быть пустым!")
 
-    st.header("✏️ Редактирование и удаление товаров")
+    st.header("✏️ Редактирование справочника")
+    st.write("Вы можете менять данные прямо в таблице ниже, а затем нажать кнопку сохранения.")
+    
     products = session.query(Product).all()
     
     if products:
-        prod_dict = {p.name: p for p in products}
-        edit_target_name = st.selectbox("Выберите товар для изменения или удаления", list(prod_dict.keys()), key="edit_select")
-        target_product = prod_dict[edit_target_name]
+        # Превращаем данные из базы в Pandas DataFrame для редактора
+        df_products = pd.DataFrame([{
+            "id": p.id,
+            "Название": p.name,
+            "Категория": p.category,
+            "Плотность": p.density,
+            "Вес тары": p.tare_weight
+        } for p in products])
         
-        with st.form("edit_product_form"):
-            new_name = st.text_input("Новое название", value=target_product.name)
-            new_cat_index = ["шт", "вино", "крепкий алкоголь", "сироп"].index(target_product.category) if target_product.category in ["шт", "вино", "крепкий алкоголь", "сироп"] else 0
-            new_category = st.selectbox("Новая категория", ["шт", "вино", "крепкий алкоголь", "сироп"], index=new_cat_index)
-            new_density = st.number_input("Новая плотность (г/мл)", value=float(target_product.density), step=0.01)
-            new_tare = st.number_input("Новый вес тары (г)", value=float(target_product.tare_weight), step=10.0)
-            
-            col1, col2 = st.columns(2)
-            update_btn = col1.form_submit_button("💾 Обновить товар")
-            delete_btn = col2.form_submit_button("🗑️ Удалить товар")
-            
-            if update_btn:
-                target_product.name = new_name
-                target_product.category = new_category
-                target_product.density = new_density
-                target_product.tare_weight = new_tare
+        # Создаем интерактивный редактор таблиц
+        edited_df = st.data_editor(df_products, key="product_editor", hide_index=True)
+        
+        if st.button("💾 Сохранить изменения в таблице"):
+            try:
+                # Проходим по каждой строчке измененной таблицы и обновляем базу данных
+                for index, row in edited_df.iterrows():
+                    db_prod = session.query(Product).filter_by(id=row["id"]).first()
+                    if db_prod:
+                        db_prod.name = row["Название"]
+                        db_prod.category = row["Категория"]
+                        db_prod.density = row["Плотность"]
+                        db_prod.tare_weight = row["Вес тары"]
                 session.commit()
-                st.success("Товар успешно обновлен!")
+                st.success("Все изменения успешно сохранены в базе данных!")
                 st.rerun()
-                
-            if delete_btn:
-                session.delete(target_product)
-                session.commit()
-                st.success("Товар удален из справочника!")
-                st.rerun()
+            except Exception as e:
+                session.rollback()
+                st.error(f"Ошибка при сохранении: {e}")
     else:
         st.info("Справочник пуст.")
 
