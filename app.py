@@ -60,17 +60,23 @@ with tab1:
             input_value = 0.0
             if selected_product.category == "шт":
                 input_value = st.number_input("Количество (шт)", min_value=0.0, step=1.0)
-            else:
+            elif selected_product.category == "л":
+                input_value = st.number_input("Общий вес с тарой (г)", min_value=0.0, step=10.0)
+            elif selected_product.category == "кг":
                 input_value = st.number_input("Общий вес с тарой (г)", min_value=0.0, step=10.0)
             
             submit_inventory = st.form_submit_button("Сохранить результат")
             
             if submit_inventory:
-                net_weight = input_value - selected_product.tare_weight
+                calculated_result = 0.0
                 if selected_product.category == "шт":
                     calculated_result = input_value
-                else:
+                elif selected_product.category == "л":
+                    net_weight = input_value - selected_product.tare_weight
                     calculated_result = net_weight / selected_product.density / 1000 if net_weight > 0 and selected_product.density > 0 else 0.0
+                elif selected_product.category == "кг":
+                    net_weight = input_value - selected_product.tare_weight
+                    calculated_result = net_weight / 1000 if net_weight > 0 else 0.0
 
                 new_record = InventoryRecord(
                     product_id=selected_product.id,
@@ -95,9 +101,12 @@ with tab1:
             if prod:
                 if prod.category == "шт":
                     res = r.current_weight
-                else:
+                elif prod.category == "л":
                     net = r.current_weight - prod.tare_weight
                     res = net / prod.density / 1000 if net > 0 and prod.density > 0 else 0.0
+                elif prod.category == "кг":
+                    net = r.current_weight - prod.tare_weight
+                    res = net / 1000 if net > 0 else 0.0
 
             history_data.append({
                 "Дата и время": r.checked_at.strftime("%Y-%m-%d %H:%M:%S"),
@@ -121,15 +130,27 @@ with tab1:
         st.info("История переучетов пока пуста.")
 
 
-# --- ВКЛАДКА 2: СПРАВОЧНИК И ИТЕРАТИВНОЕ РЕДАКТИРОВАНИЕ ---
+# --- ВКЛАДКА 2: СПРАВОЧНИК И УПРАВЛЕНИЕ ---
 with tab2:
     st.header("Добавить новый товар")
-    with st.form("add_product_form"):
-        prod_name = st.text_input("Название товара")
-        prod_category = st.selectbox("Категория", ["шт", "вино", "крепкий алкоголь", "сироп"])
+    
+    # Выбор категории вне формы, чтобы поля реагировали мгновенно
+    prod_category = st.selectbox("Категория", ["шт", "л", "кг"])
+    
+    prod_density = 1.0
+    prod_tare = 0.0
+    
+    # Динамическое отображение полей в зависимости от выбранной категории
+    if prod_category == "л":
         prod_density = st.number_input("Плотность (г/мл)", value=1.0, step=0.01)
         prod_tare = st.number_input("Вес тары (г)", value=0.0, step=10.0)
-        
+    elif prod_category == "кг":
+        # Плотность скрыта, оставляем только вес тары
+        prod_tare = st.number_input("Вес тары (г)", value=0.0, step=10.0)
+    # Для категории "шт" плотность и вес тары автоматически не запрашиваются (скрыты)
+
+    with st.form("add_product_form"):
+        prod_name = st.text_input("Название товара")
         submit_product = st.form_submit_button("Сохранить в справочник")
         
         if submit_product:
@@ -157,7 +178,6 @@ with tab2:
     products = session.query(Product).all()
     
     if products:
-        # Превращаем данные из базы в Pandas DataFrame для редактора
         df_products = pd.DataFrame([{
             "id": p.id,
             "Название": p.name,
@@ -166,12 +186,10 @@ with tab2:
             "Вес тары": p.tare_weight
         } for p in products])
         
-        # Создаем интерактивный редактор таблиц
         edited_df = st.data_editor(df_products, key="product_editor", hide_index=True)
         
         if st.button("💾 Сохранить изменения в таблице"):
             try:
-                # Проходим по каждой строчке измененной таблицы и обновляем базу данных
                 for index, row in edited_df.iterrows():
                     db_prod = session.query(Product).filter_by(id=row["id"]).first()
                     if db_prod:
@@ -184,7 +202,7 @@ with tab2:
                 st.rerun()
             except Exception as e:
                 session.rollback()
-                st.error(f"Ошибка при сохранении: {e}")
+                st.error(fинфо(f"Ошибка при сохранении: {e}"))
     else:
         st.info("Справочник пуст.")
 
