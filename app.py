@@ -30,23 +30,26 @@ if not st.session_state.authenticated:
                 st.error("Неверный пароль. Попробуйте еще раз.")
     st.stop()
 
-# --- ОСНОВНОЙ ИНТЕРФЕЙС ---
+# --- ОСНОВНОЙ ИНТЕРФЕЙС И БОКОВАЯ ПАНЕЛЬ НАВИГАЦИИ ---
 session = Session()
 
-st.title("🍹 Система инвентаризации бара")
+st.sidebar.title("🍹 Меню бармена")
+page = st.sidebar.radio(
+    "Навигация", 
+    ["📝 Переучет продукции", "📊 История и Экспорт", "📚 Справочник и Управление"]
+)
 
 if st.sidebar.button("🚪 Выйти из системы"):
     st.session_state.authenticated = False
     st.rerun()
 
-tab1, tab2, tab3 = st.tabs(["📝 Переучет продукции", "📊 История и Экспорт", "📚 Справочник и Управление"])
-
-# --- ВКЛАДКА 1: ПЕРЕУЧЕТ С ШЛАГБАУМОМ И СВОРАЧИВАНИЕМ ---
-with tab1:
-    st.header("Проведение переучета")
-    st.write("Посчитанные товары уходят под шлагбаум. Нажмите на название товара внизу, чтобы развернуть его для редактирования.")
+# --- СТРАНИЦА 1: ПЕРЕУЧЕТ ПРОДУКЦИИ ---
+if page == "📝 Переучет продукции":
+    st.title("📝 Массовый переучет продукции")
+    st.write("Посчитанные товары уходят под шлагбаум. Шкала прогресса показывает, сколько позиций уже обработано.")
     
-    products = session.query(Product).all()
+    # Загружаем продукцию в алфавитном порядке
+    products = session.query(Product).order_by(Product.name.asc()).all()
     
     if not products:
         st.warning("Сначала добавьте товары во вкладке «Справочник и Управление»!")
@@ -54,9 +57,8 @@ with tab1:
         if "inv_data" not in st.session_state:
             st.session_state.inv_data = {}
         if "edit_mode" not in st.session_state:
-            st.session_state.edit_mode = set()  # id товаров, которые принудительно открыты для редактирования
+            st.session_state.edit_mode = set()
 
-        # Товар считается посчитанным, ТОЛЬКО если введен Общий вес (> 0) для кг/л или Кол-во (> 0) для шт
         def is_completed(p):
             if p.id in st.session_state.edit_mode:
                 return False
@@ -68,8 +70,27 @@ with tab1:
                 w = d.get("weight")
                 return w is not None and w > 0
 
-        uncompleted_products = [p for p in products if not is_completed(p)]
+        total_count = len(products)
         completed_products = [p for p in products if is_completed(p)]
+        completed_count = len(completed_products)
+        progress_val = completed_count / total_count if total_count > 0 else 0.0
+
+        # --- ВИЗУАЛЬНАЯ ШКАЛА И АНИМАЦИЯ КОТИКА ---
+        col_prog1, col_prog2 = st.columns([3, 1])
+        with col_prog1:
+            st.subheader(f"Прогресс смены: {completed_count} из {total_count} позиций")
+            st.progress(progress_val)
+        with col_prog2:
+            if progress_val < 1.0:
+                # Котик кушает/ждет корм
+                st.image("https://media.giphy.com/media/3oriO0OEd9QIDdllqo/giphy.gif", width=100, caption="Котик хрустит кормом 🐾")
+            else:
+                # Котик сыт и спит клубочком
+                st.image("https://media.giphy.com/media/3og0IPxMM0erATueVW/giphy.gif", width=100, caption="Всё готово! Котик спит 💤")
+
+        st.divider()
+
+        uncompleted_products = [p for p in products if not is_completed(p)]
 
         # --- ВВЕРХУ: НЕПОСЧИТАННЫЕ ТОВАРЫ ---
         for p in uncompleted_products:
@@ -131,20 +152,19 @@ with tab1:
             
             st.divider()
 
-        # --- ШЛАГБАУМ (ВИЗУАЛЬНЫЙ РАЗДЕЛИТЕЛЬ) ---
+        # --- ШЛАГБАУМ ---
         if completed_products:
             st.markdown(
                 """
                 <div style="display: flex; align-items: center; text-align: center; margin: 30px 0 20px 0;">
                     <hr style="flex: 1; border: none; border-top: 2px dashed #ff4b4b;">
-                    <span style="padding: 0 15px; color: #ff4b4b; font-weight: bold; font-size: 16px;">🛑 Шлагбаум: Посчитанная продукция (нажмите на название для редактирования)</span>
+                    <span style="padding: 0 15px; color: #ff4b4b; font-weight: bold; font-size: 15px;">🛑 Шлагбаум: Посчитанная продукция (нажмите для редактирования)</span>
                     <hr style="flex: 1; border: none; border-top: 2px dashed #ff4b4b;">
                 </div>
                 """, 
                 unsafe_allow_html=True
             )
 
-            # --- ВНИЗУ: ПОСЧИТАННЫЕ ТОВАРЫ (ТОЛЬКО НАЗВАНИЯ / КЛИКАБЕЛЬНЫЕ) ---
             for p in completed_products:
                 d = st.session_state.inv_data.get(p.id, {})
                 res_str = ""
@@ -160,7 +180,6 @@ with tab1:
                         net = (w_val - total_tare_weight) if total_tare_weight > 0 else w_val
                     res_str = f"{net:.3f} {p.category}"
 
-                # Кнопка-строка для разворачивания/редактирования
                 if st.button(f"✅ {p.name} — Результат: {res_str} (кликните для изменения)", key=f"edit_btn_{p.id}"):
                     st.session_state.edit_mode.add(p.id)
                     st.rerun()
@@ -197,9 +216,9 @@ with tab1:
                 st.error(f"Ошибка при сохранении: {e}")
 
 
-# --- ВКЛАДКА 2: ИСТОРИЯ ПО ДАТАМ И ЭКСПОРТ ---
-with tab2:
-    st.header("📊 История переучетов по датам")
+# --- СТРАНИЦА 2: ИСТОРИЯ ПО ДАТАМ И ЭКСПОРТ ---
+elif page == "📊 История и Экспорт":
+    st.title("📊 История переучетов по датам")
     
     records = session.query(InventoryRecord).order_by(InventoryRecord.checked_at.desc()).all()
     
@@ -241,10 +260,11 @@ with tab2:
         st.info("История переучетов пока пуста.")
 
 
-# --- ВКЛАДКА 3: СПРАВОЧНИК И УПРАВЛЕНИЕ ---
-with tab3:
-    st.header("Добавить новый товар")
+# --- СТРАНИЦА 3: СПРАВОЧНИК И УПРАВЛЕНИЕ ---
+elif page == "📚 Справочник и Управление":
+    st.title("📚 Справочник и Управление товарами")
     
+    st.header("Добавить новый товар")
     prod_category = st.selectbox("Категория", ["шт", "л", "кг"])
     
     prod_density = 1.0
@@ -280,7 +300,7 @@ with tab3:
                 st.warning("Название не может быть пустым!")
 
     st.header("✏️ Редактирование и удаление справочника")
-    products = session.query(Product).all()
+    products = session.query(Product).order_by(Product.name.asc()).all()
     
     if products:
         df_products = pd.DataFrame([{
