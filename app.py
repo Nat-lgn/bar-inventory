@@ -93,65 +93,10 @@ if page == "📝 Переучет продукции":
         uncompleted_products = [p for p in products if not is_completed(p)]
 
         # --- ВВЕРХУ: НЕПОСЧИТАННЫЕ ТОВАРЫ ---
-        # --- ВВЕРХУ: НЕПОСЧИТАННЫЕ ТОВАРЫ ---
         for p in uncompleted_products:
-            # Создаем визуальную карточку с рамкой для каждого товара
-            with st.container(border=True):
-                st.markdown(f"#### {p.name} <span style='font-size:14px; color:gray;'>({p.category})</span>", unsafe_allow_html=True)
-                
-                p_data = st.session_state.inv_data.get(p.id, {})
-                
-                if p.category == "шт":
-                    val = st.number_input(
-                        f"Количество", 
-                        min_value=0.0, 
-                        step=1.0, 
-                        value=p_data.get("val", None), 
-                        key=f"val_{p.id}"
-                    )
-                    if val != p_data.get("val"):
-                        st.session_state.inv_data[p.id] = {"val": val}
-                        if p.id in st.session_state.edit_mode:
-                            st.session_state.edit_mode.remove(p.id)
-                        st.rerun()
-                
-                elif p.category in ["кг", "л"]:
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        tare_count = st.number_input(
-                            f"Кол-во тары", 
-                            min_value=0.0, 
-                            step=1.0, 
-                            value=p_data.get("tare", None), 
-                            key=f"tare_{p.id}"
-                        )
-                    with col2:
-                        total_weight = st.number_input(
-                            f"Общий вес (г)", 
-                            min_value=0.0, 
-                            step=10.0, 
-                            value=p_data.get("weight", None), 
-                            key=f"weight_{p.id}"
-                        )
-                    with col3:
-                        t_val = tare_count if tare_count is not None else 0.0
-                        w_val = total_weight if total_weight is not None else 0.0
-                        total_tare_weight = t_val * p.tare_weight
-                        net_result = 0.0
-                        if p.category == "л":
-                            net_weight = w_val - total_tare_weight if w_val > total_tare_weight else 0.0
-                            net_result = net_weight / p.density / 1000 if p.density > 0 else 0.0
-                        elif p.category == "кг":
-                            net_weight = w_val - total_tare_weight if total_tare_weight > 0 else w_val
-                            net_result = net_weight if net_weight > 0 else 0.0
-                        
-                        st.metric(label="Результат", value=f"{net_result:.3f} {p.category}")
-                    
-                    if tare_count != p_data.get("tare") or total_weight != p_data.get("weight"):
-                        st.session_state.inv_data[p.id] = {"tare": tare_count, "weight": total_weight}
-                        if p.id in st.session_state.edit_mode:
-                            st.session_state.edit_mode.remove(p.id)
-                        st.rerun()
+            st.markdown(f"### 🔹 {p.name} <span style='font-size:14px; color:gray;'>(Тип: {p.category})</span>", unsafe_allow_html=True)
+            
+            p_data = st.session_state.inv_data.get(p.id, {})
             
             if p.category == "шт":
                 val = st.number_input(
