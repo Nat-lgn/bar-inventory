@@ -41,10 +41,10 @@ if st.sidebar.button("🚪 Выйти из системы"):
 
 tab1, tab2, tab3 = st.tabs(["📝 Переучет продукции", "📊 История и Экспорт", "📚 Справочник и Управление"])
 
-# --- ВКЛАДКА 1: ПЕРЕУЧЕТ С ДИНАМИЧЕСКИМ СМЕЩЕНИЕМ И ПУСТЫМИ ПОЛЯМИ ---
+# --- ВКЛАДКА 1: ПЕРЕУЧЕТ С ШЛАГБАУМОМ И СВОРАЧИВАНИЕМ ---
 with tab1:
     st.header("Проведение переучета")
-    st.write("Поля ввода изначально пусты. Заполненные позиции автоматически перемещаются в конец списка.")
+    st.write("Посчитанные товары уходят под шлагбаум. Нажмите на название товара внизу, чтобы развернуть его для редактирования.")
     
     products = session.query(Product).all()
     
@@ -53,18 +53,26 @@ with tab1:
     else:
         if "inv_data" not in st.session_state:
             st.session_state.inv_data = {}
+        if "edit_mode" not in st.session_state:
+            st.session_state.edit_mode = set()  # id товаров, которые принудительно открыты для редактирования
 
+        # Товар считается посчитанным, ТОЛЬКО если введен Общий вес (> 0) для кг/л или Кол-во (> 0) для шт
         def is_completed(p):
+            if p.id in st.session_state.edit_mode:
+                return False
             d = st.session_state.inv_data.get(p.id, {})
             if p.category == "шт":
-                return d.get("val") is not None and d.get("val") > 0
+                val = d.get("val")
+                return val is not None and val > 0
             else:
-                return (d.get("weight") is not None and d.get("weight") > 0) or (d.get("tare") is not None and d.get("tare") > 0)
+                w = d.get("weight")
+                return w is not None and w > 0
 
-        # Сортировка: незаполненные сверху, заполненные снизу
-        sorted_products = sorted(products, key=lambda p: (1 if is_completed(p) else 0, p.name))
+        uncompleted_products = [p for p in products if not is_completed(p)]
+        completed_products = [p for p in products if is_completed(p)]
 
-        for p in sorted_products:
+        # --- ВВЕРХУ: НЕПОСЧИТАННЫЕ ТОВАРЫ ---
+        for p in uncompleted_products:
             st.markdown(f"### 🔹 {p.name} <span style='font-size:14px; color:gray;'>(Тип: {p.category})</span>", unsafe_allow_html=True)
             
             p_data = st.session_state.inv_data.get(p.id, {})
@@ -79,6 +87,8 @@ with tab1:
                 )
                 if val != p_data.get("val"):
                     st.session_state.inv_data[p.id] = {"val": val}
+                    if p.id in st.session_state.edit_mode:
+                        st.session_state.edit_mode.remove(p.id)
                     st.rerun()
             
             elif p.category in ["кг", "л"]:
@@ -115,10 +125,47 @@ with tab1:
                 
                 if tare_count != p_data.get("tare") or total_weight != p_data.get("weight"):
                     st.session_state.inv_data[p.id] = {"tare": tare_count, "weight": total_weight}
+                    if p.id in st.session_state.edit_mode:
+                        st.session_state.edit_mode.remove(p.id)
                     st.rerun()
             
             st.divider()
 
+        # --- ШЛАГБАУМ (ВИЗУАЛЬНЫЙ РАЗДЕЛИТЕЛЬ) ---
+        if completed_products:
+            st.markdown(
+                """
+                <div style="display: flex; align-items: center; text-align: center; margin: 30px 0 20px 0;">
+                    <hr style="flex: 1; border: none; border-top: 2px dashed #ff4b4b;">
+                    <span style="padding: 0 15px; color: #ff4b4b; font-weight: bold; font-size: 16px;">🛑 Шлагбаум: Посчитанная продукция (нажмите на название для редактирования)</span>
+                    <hr style="flex: 1; border: none; border-top: 2px dashed #ff4b4b;">
+                </div>
+                """, 
+                unsafe_allow_html=True
+            )
+
+            # --- ВНИЗУ: ПОСЧИТАННЫЕ ТОВАРЫ (ТОЛЬКО НАЗВАНИЯ / КЛИКАБЕЛЬНЫЕ) ---
+            for p in completed_products:
+                d = st.session_state.inv_data.get(p.id, {})
+                res_str = ""
+                if p.category == "шт":
+                    res_str = f"{d.get('val', 0)} шт"
+                else:
+                    t_val = d.get("tare", 0.0) or 0.0
+                    w_val = d.get("weight", 0.0) or 0.0
+                    total_tare_weight = t_val * p.tare_weight
+                    if p.category == "л":
+                        net = (w_val - total_tare_weight) / p.density / 1000 if (w_val - total_tare_weight) > 0 and p.density > 0 else 0.0
+                    else:
+                        net = (w_val - total_tare_weight) if total_tare_weight > 0 else w_val
+                    res_str = f"{net:.3f} {p.category}"
+
+                # Кнопка-строка для разворачивания/редактирования
+                if st.button(f"✅ {p.name} — Результат: {res_str} (кликните для изменения)", key=f"edit_btn_{p.id}"):
+                    st.session_state.edit_mode.add(p.id)
+                    st.rerun()
+
+        st.markdown("<br>", unsafe_allow_html=True)
         if st.button("💾 Сохранить результаты переучета смены", type="primary"):
             try:
                 current_time = datetime.now()
@@ -141,6 +188,7 @@ with tab1:
                 if saved_count > 0:
                     st.success(f"Успешно сохранено позиций: {saved_count}!")
                     st.session_state.inv_data = {}
+                    st.session_state.edit_mode = set()
                     st.rerun()
                 else:
                     st.warning("Нет заполненных данных для сохранения.")
