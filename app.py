@@ -1,4 +1,5 @@
 import os
+import io
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -75,82 +76,71 @@ if page == "📝 Переучет продукции":
         completed_count = len(completed_products)
         progress_val = completed_count / total_count if total_count > 0 else 0.0
 
-        # --- ВИЗУАЛЬНАЯ ШКАЛА И АНИМАЦИЯ КОТИКА ---
-        col_prog1, col_prog2 = st.columns([3, 1])
-        with col_prog1:
-            st.subheader(f"Прогресс смены: {completed_count} из {total_count} позиций")
-            st.progress(progress_val)
-        with col_prog2:
-            if progress_val < 1.0:
-                # Котик кушает/ждет корм
-                st.image("https://media.giphy.com/media/3oriO0OEd9QIDdllqo/giphy.gif", width=100, caption="Котик хрустит кормом 🐾")
-            else:
-                # Котик сыт и спит клубочком
-                st.image("https://media.giphy.com/media/3og0IPxMM0erATueVW/giphy.gif", width=100, caption="Всё готово! Котик спит 💤")
-
+        # --- ШКАЛА ПРОГРЕССА ---
+        st.subheader(f"Прогресс смены: {completed_count} из {total_count} позиций")
+        st.progress(progress_val)
         st.divider()
 
         uncompleted_products = [p for p in products if not is_completed(p)]
 
-        # --- ВВЕРХУ: НЕПОСЧИТАННЫЕ ТОВАРЫ ---
+        # --- ВВЕРХУ: НЕПОСЧИТАННЫЕ ТОВАРЫ В ВИДЕ АККУРАТНЫХ КАРТОЧЕК ---
         for p in uncompleted_products:
-            st.markdown(f"### 🔹 {p.name} <span style='font-size:14px; color:gray;'>(Тип: {p.category})</span>", unsafe_allow_html=True)
-            
-            p_data = st.session_state.inv_data.get(p.id, {})
-            
-            if p.category == "шт":
-                val = st.number_input(
-                    f"Количество штук [{p.name}]", 
-                    min_value=0.0, 
-                    step=1.0, 
-                    value=p_data.get("val", None), 
-                    key=f"val_{p.id}"
-                )
-                if val != p_data.get("val"):
-                    st.session_state.inv_data[p.id] = {"val": val}
-                    if p.id in st.session_state.edit_mode:
-                        st.session_state.edit_mode.remove(p.id)
-                    st.rerun()
-            
-            elif p.category in ["кг", "л"]:
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    tare_count = st.number_input(
-                        f"Кол-во тары [{p.name}]", 
+            with st.container(border=True):
+                st.markdown(f"#### {p.name} <span style='font-size:14px; color:gray;'>({p.category})</span>", unsafe_allow_html=True)
+                
+                p_data = st.session_state.inv_data.get(p.id, {})
+                
+                if p.category == "шт":
+                    val = st.number_input(
+                        f"Количество", 
                         min_value=0.0, 
                         step=1.0, 
-                        value=p_data.get("tare", None), 
-                        key=f"tare_{p.id}"
+                        value=p_data.get("val", None), 
+                        key=f"val_{p.id}"
                     )
-                with col2:
-                    total_weight = st.number_input(
-                        f"Общий вес (г) [{p.name}]", 
-                        min_value=0.0, 
-                        step=10.0, 
-                        value=p_data.get("weight", None), 
-                        key=f"weight_{p.id}"
-                    )
-                with col3:
-                    t_val = tare_count if tare_count is not None else 0.0
-                    w_val = total_weight if total_weight is not None else 0.0
-                    total_tare_weight = t_val * p.tare_weight
-                    net_result = 0.0
-                    if p.category == "л":
-                        net_weight = w_val - total_tare_weight if w_val > total_tare_weight else 0.0
-                        net_result = net_weight / p.density / 1000 if p.density > 0 else 0.0
-                    elif p.category == "кг":
-                        net_weight = w_val - total_tare_weight if total_tare_weight > 0 else w_val
-                        net_result = net_weight if net_weight > 0 else 0.0
-                    
-                    st.metric(label="Результат (нетто)", value=f"{net_result:.3f} {p.category}")
+                    if val != p_data.get("val"):
+                        st.session_state.inv_data[p.id] = {"val": val}
+                        if p.id in st.session_state.edit_mode:
+                            st.session_state.edit_mode.remove(p.id)
+                        st.rerun()
                 
-                if tare_count != p_data.get("tare") or total_weight != p_data.get("weight"):
-                    st.session_state.inv_data[p.id] = {"tare": tare_count, "weight": total_weight}
-                    if p.id in st.session_state.edit_mode:
-                        st.session_state.edit_mode.remove(p.id)
-                    st.rerun()
-            
-            st.divider()
+                elif p.category in ["кг", "л"]:
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        tare_count = st.number_input(
+                            f"Кол-во тары", 
+                            min_value=0.0, 
+                            step=1.0, 
+                            value=p_data.get("tare", None), 
+                            key=f"tare_{p.id}"
+                        )
+                    with col2:
+                        total_weight = st.number_input(
+                            f"Общий вес (г)", 
+                            min_value=0.0, 
+                            step=10.0, 
+                            value=p_data.get("weight", None), 
+                            key=f"weight_{p.id}"
+                        )
+                    with col3:
+                        t_val = tare_count if tare_count is not None else 0.0
+                        w_val = total_weight if total_weight is not None else 0.0
+                        total_tare_weight = t_val * p.tare_weight
+                        net_result = 0.0
+                        if p.category == "л":
+                            net_weight = w_val - total_tare_weight if w_val > total_tare_weight else 0.0
+                            net_result = net_weight / p.density / 1000 if p.density > 0 else 0.0
+                        elif p.category == "кг":
+                            net_weight = w_val - total_tare_weight if total_tare_weight > 0 else w_val
+                            net_result = net_weight if net_weight > 0 else 0.0
+                        
+                        st.metric(label="Результат", value=f"{net_result:.3f} {p.category}")
+                    
+                    if tare_count != p_data.get("tare") or total_weight != p_data.get("weight"):
+                        st.session_state.inv_data[p.id] = {"tare": tare_count, "weight": total_weight}
+                        if p.id in st.session_state.edit_mode:
+                            st.session_state.edit_mode.remove(p.id)
+                        st.rerun()
 
         # --- ШЛАГБАУМ ---
         if completed_products:
@@ -216,7 +206,7 @@ if page == "📝 Переучет продукции":
                 st.error(f"Ошибка при сохранении: {e}")
 
 
-# --- СТРАНИЦА 2: ИСТОРИЯ ПО ДАТАМ И ЭКСПОРТ ---
+# --- СТРАНИЦА 2: ИСТОРИЯ ПО ДАТАМ И ЭКСПОРТ В EXCEL ---
 elif page == "📊 История и Экспорт":
     st.title("📊 История переучетов по датам")
     
@@ -249,12 +239,17 @@ elif page == "📊 История и Экспорт":
             df_history = pd.DataFrame(history_data)
             st.dataframe(df_history, use_container_width=True)
             
-            csv_data = df_history.to_csv(index=False).encode('utf-8')
+            # Генерация Excel файла (.xlsx) прямо в памяти
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df_history.to_excel(writer, index=False, sheet_name='Переучет смены')
+            excel_data = output.getvalue()
+            
             st.download_button(
-                label=f"📥 Скачать отчет за {selected_session_date} в CSV (Excel)",
-                data=csv_data,
-                file_name=f"inventory_report_{selected_session_date.replace(':', '-')}.csv",
-                mime="text/csv"
+                label=f"📥 Скачать отчет за {selected_session_date} в формате Excel (.xlsx)",
+                data=excel_data,
+                file_name=f"inventory_report_{selected_session_date.replace(':', '-')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
     else:
         st.info("История переучетов пока пуста.")
