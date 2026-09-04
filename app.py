@@ -5,7 +5,6 @@ import pandas as pd
 from datetime import datetime
 from database import Session, engine
 from models import Base, Product, InventoryRecord, User
-import hashlib
 
 def init_default_user(session):
     existing_user = session.query(User).first()
@@ -18,7 +17,7 @@ Base.metadata.create_all(bind=engine)
 
 st.set_page_config(page_title="Инвентаризация бара", page_icon="🍹", layout="wide")
 
-# --- СИСТЕМА АВТОРИЗАЦИИ ---
+# --- СИСТЕМА АВТОРИЗАЦИИ (ВХОД И РЕГИСТРАЦИЯ) ---
 session = Session()
 init_default_user(session)
 session.close()
@@ -29,29 +28,59 @@ if "username" not in st.session_state:
     st.session_state.username = ""
 
 if not st.session_state.authenticated:
-    st.title("🔒 Доступ ограничен")
-    st.write("Пожалуйста, введите логин и пароль для доступа к системе.")
+    st.title("🔒 Доступ к системе инвентаризации")
     
-    with st.form("login_form"):
-        username_input = st.text_input("Логин")
-        password_input = st.text_input("Пароль", type="password")
-        submit_login = st.form_submit_button("Войти")
-        
-        if submit_login:
-            session = Session()
-            user = session.query(User).filter_by(username=username_input.strip(), password=password_input).first()
-            session.close()
+    auth_tab1, auth_tab2 = st.tabs(["🔑 Вход (Log in)", "📝 Регистрация (Sign up)"])
+    
+    with auth_tab1:
+        with st.form("login_form"):
+            username_input = st.text_input("Логин", key="login_user")
+            password_input = st.text_input("Пароль", type="password", key="login_pass")
+            submit_login = st.form_submit_button("Войти")
             
-            if user:
-                st.session_state.authenticated = True
-                st.session_state.username = user.username
-                st.success("Успешный вход!")
-                st.rerun()
-            else:
-                st.error("Неверный логин или пароль.")
+            if submit_login:
+                session = Session()
+                user = session.query(User).filter_by(username=username_input.strip(), password=password_input).first()
+                session.close()
+                
+                if user:
+                    st.session_state.authenticated = True
+                    st.session_state.username = user.username
+                    st.success("Успешный вход!")
+                    st.rerun()
+                else:
+                    st.error("Неверный логин или пароль.")
+                    
+    with auth_tab2:
+        with st.form("signup_form"):
+            new_user_input = st.text_input("Придумайте логин", key="signup_user")
+            new_pass_input = st.text_input("Придумайте пароль", type="password", key="signup_pass")
+            confirm_pass_input = st.text_input("Подтвердите пароль", type="password", key="signup_confirm")
+            submit_signup = st.form_submit_button("Зарегистрироваться")
+            
+            if submit_signup:
+                if not new_user_input.strip() or not new_pass_input.strip():
+                    st.warning("Логин и пароль не могут быть пустыми.")
+                elif new_pass_input != confirm_pass_input:
+                    st.warning("Пароли не совпадают.")
+                else:
+                    session = Session()
+                    existing_user = session.query(User).filter_by(username=new_user_input.strip()).first()
+                    if existing_user:
+                        st.warning("Пользователь с таким логином уже существует.")
+                    else:
+                        new_user = User(username=new_user_input.strip(), password=new_pass_input)
+                        session.add(new_user)
+                        session.commit()
+                        st.session_state.authenticated = True
+                        st.session_state.username = new_user.username
+                        st.success("Регистрация успешна! Вход выполнен.")
+                        st.rerun()
+                    session.close()
     st.stop()
 
 st.sidebar.title("🍹 Меню бармена")
+st.sidebar.caption(👤 Вы вошли как: **{st.session_state.username}**")
 page = st.sidebar.radio(
     "Навигация", 
     ["📝 Переучет продукции", "📊 История и Экспорт", "📚 Справочник и Управление"]
@@ -59,6 +88,7 @@ page = st.sidebar.radio(
 
 if st.sidebar.button("🚪 Выйти из системы"):
     st.session_state.authenticated = False
+    st.session_state.username = ""
     st.rerun()
 
 # --- СТРАНИЦА 1: ПЕРЕУЧЕТ ПРОДУКЦИИ ---
