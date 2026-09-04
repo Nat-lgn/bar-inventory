@@ -1,4 +1,3 @@
-# app.py
 import os
 import io
 import streamlit as st
@@ -13,6 +12,24 @@ def init_default_user(session):
         default_user = User(username="admin", password="bar123")
         session.add(default_user)
         session.commit()
+
+def evaluate_expression(expr_str):
+    if expr_str is None:
+        return 0.0
+    str_val = str(expr_str).strip().replace(',', '.')
+    if not str_val:
+        return 0.0
+    try:
+        allowed_chars = set("0123456789+-*/(). ")
+        if not all(c in allowed_chars for c in str_val):
+            return float(str_val)
+        result = eval(str_val, {"__builtins__": {}}, {})
+        return float(result)
+    except Exception:
+        try:
+            return float(str_val)
+        except ValueError:
+            return 0.0
 
 Base.metadata.create_all(bind=engine)
 
@@ -134,21 +151,21 @@ if page == "📝 Переучет продукции":
 
         # --- ВВЕРХУ: НЕПОСЧИТАННЫЕ ТОВАРЫ В ВИДЕ КАРТОЧЕК ---
         for p in uncompleted_products:
-            with st.container(border=True): #[cite: 1]
+            with st.container(border=True):
                 st.markdown(f"#### {p.name} <span style='font-size:14px; color:gray;'>({p.category})</span>", unsafe_allow_html=True)
                 
                 p_data = st.session_state.inv_data.get(p.id, {})
                 
                 if p.category == "шт":
-                    val = st.number_input(
-                        "Количество", 
-                        min_value=0.0, 
-                        step=1.0, 
-                        value=p_data.get("val", None), 
-                        key=f"val_{p.id}"
+                    val_input = st.text_input(
+                        "Количество (можно формулой, например: 10+5)", 
+                        value=str(p_data.get("val_str", "")), 
+                        key=f"val_str_{p.id}"
                     )
-                    if val != p_data.get("val"):
-                        st.session_state.inv_data[p.id] = {"val": val}
+                    val = evaluate_expression(val_input)
+                    
+                    if val_input != p_data.get("val_str"):
+                        st.session_state.inv_data[p.id] = {"val_str": val_input, "val": val}
                         if p.id in st.session_state.edit_mode:
                             st.session_state.edit_mode.remove(p.id)
                         st.rerun()
@@ -156,37 +173,38 @@ if page == "📝 Переучет продукции":
                 elif p.category in ["кг", "л"]:
                     col1, col2, col3 = st.columns(3)
                     with col1:
-                        tare_count = st.number_input(
+                        tare_input = st.text_input(
                             "Кол-во тары", 
-                            min_value=0.0, 
-                            step=1.0, 
-                            value=p_data.get("tare", None), 
-                            key=f"tare_{p.id}"
+                            value=str(p_data.get("tare_str", "")), 
+                            key=f"tare_str_{p.id}"
                         )
+                        tare_count = evaluate_expression(tare_input)
                     with col2:
-                        total_weight = st.number_input(
-                            "Общий вес (г)", 
-                            min_value=0.0, 
-                            step=10.0, 
-                            value=p_data.get("weight", None), 
-                            key=f"weight_{p.id}"
+                        weight_input = st.text_input(
+                            "Общий вес (г) [калькулятор]", 
+                            value=str(p_data.get("weight_str", "")), 
+                            key=f"weight_str_{p.id}"
                         )
+                        total_weight = evaluate_expression(weight_input)
                     with col3:
-                        t_val = tare_count if tare_count is not None else 0.0
-                        w_val = total_weight if total_weight is not None else 0.0
-                        total_tare_weight = t_val * p.tare_weight
+                        total_tare_weight = tare_count * p.tare_weight
                         net_result = 0.0
                         if p.category == "л":
-                            net_weight = w_val - total_tare_weight if w_val > total_tare_weight else 0.0
+                            net_weight = total_weight - total_tare_weight if total_weight > total_tare_weight else 0.0
                             net_result = net_weight / p.density / 1000 if p.density > 0 else 0.0
                         elif p.category == "кг":
-                            net_weight = w_val - total_tare_weight if total_tare_weight > 0 else w_val
+                            net_weight = total_weight - total_tare_weight if total_tare_weight > 0 else total_weight
                             net_result = net_weight if net_weight > 0 else 0.0
                         
                         st.metric(label="Результат", value=f"{net_result:.3f} {p.category}")
                     
-                    if tare_count != p_data.get("tare") or total_weight != p_data.get("weight"):
-                        st.session_state.inv_data[p.id] = {"tare": tare_count, "weight": total_weight}
+                    if tare_input != p_data.get("tare_str") or weight_input != p_data.get("weight_str"):
+                        st.session_state.inv_data[p.id] = {
+                            "tare_str": tare_input, 
+                            "tare": tare_count, 
+                            "weight_str": weight_input, 
+                            "weight": total_weight
+                        }
                         if p.id in st.session_state.edit_mode:
                             st.session_state.edit_mode.remove(p.id)
                         st.rerun()
@@ -233,12 +251,12 @@ if page == "📝 Переучет продукции":
                 for p in products:
                     data = st.session_state.inv_data.get(p.id, {})
                     if p.category == "шт":
-                        val = data.get("val")
+                        val = data.get("val", 0.0)
                         if val is not None and val > 0:
                             session.add(InventoryRecord(product_id=p.id, current_weight=val, checked_at=current_time))
                             saved_count += 1
                     else:
-                        w = data.get("weight")
+                        w = data.get("weight", 0.0)
                         if w is not None and w > 0:
                             session.add(InventoryRecord(product_id=p.id, current_weight=w, checked_at=current_time))
                             saved_count += 1
@@ -316,7 +334,7 @@ elif page == "📚 Справочник и Управление":
     
     # --- 1. МАССОВАЯ ЗАГРУЗКА ИЗ ФАЙЛА ---
     st.header("📥 Загрузка справочника из таблицы")
-    st.write("Загрузите Excel-файл (`.xlsx`) или CSV со списком продукции. Сайт автоматически считает названия, категории и параметры тары.")
+    st.write("Загрузите Excel-файл (`.xlsx`) или CSV со списком продукции. Убедитесь, что у файла есть шапка с заголовками: **Название**, **Категория**.")
     
     uploaded_file = st.file_uploader("Выберите файл с товарами", type=["xlsx", "csv"])
     
@@ -373,7 +391,7 @@ elif page == "📚 Справочник и Управление":
                     session.close()
                     st.rerun()
                 else:
-                    st.warning(f"Ни одна строка не была импортирована. Проверьте заголовки колонок. Пропущено строк: {skipped_count}")
+                    st.warning(f"Ни одна строка не была импортирована. Проверьте заголовки колонок («Название», «Категория»). Пропущено строк: {skipped_count}")
                 
         except Exception as e:
             st.error(f"Ошибка при чтении файла: {e}")
@@ -444,7 +462,7 @@ elif page == "📚 Справочник и Управление":
                     session.flush()
                     current_ui_ids.add(new_prod.id)
             
-            # Вместо жесткого удаления делаем мягкое (is_active = False) для позиций, стертых в редакторе
+            # Мягкое удаление (is_active = False) для позиций, стертых в редакторе
             for p in products:
                 if p.id not in current_ui_ids:
                     p.is_active = False
