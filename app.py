@@ -317,7 +317,7 @@ elif page == "📚 Справочник и Управление":
     st.header("📥 Загрузка справочника из таблицы")
     st.write("Загрузите Excel-файл (`.xlsx`) или CSV со списком продукции. Сайт автоматически считает названия, категории и параметры тары.")
     
-    uploaded_file = st.file_uploader("Выберите файл с товарами", type=["xlsx", "csv"])
+   uploaded_file = st.file_uploader("Выберите файл с товарами", type=["xlsx", "csv"])
     
     if uploaded_file is not None:
         try:
@@ -326,18 +326,21 @@ elif page == "📚 Справочник и Управление":
             else:
                 df_upload = pd.read_excel(uploaded_file)
             
-            st.write("Предпросмотр загруженных данных:")
-            st.dataframe(df_upload.head(), use_container_width=True)
+            st.write("Обнаруженные колонки в файле:", list(df_upload.columns))
+            st.write("Полный предпросмотр данных:")
+            st.dataframe(df_upload, use_container_width=True)
             
             if st.button("🚀 Импортировать данные в базу", type="primary"):
                 added_count = 0
                 updated_count = 0
+                skipped_count = 0
                 
                 for _, row in df_upload.iterrows():
                     name = str(row.get("Название", "")).strip()
                     category = str(row.get("Категория", "шт")).strip()
                     
-                    if not name or name == "nan":
+                    if not name or name == "nan" or name == "":
+                        skipped_count += 1
                         continue
                         
                     density = float(row.get("Плотность", 1.0)) if pd.notna(row.get("Плотность")) else 1.0
@@ -359,6 +362,18 @@ elif page == "📚 Справочник и Управление":
                         )
                         session.add(new_product)
                         added_count += 1
+                
+                session.commit()
+                
+                if added_count > 0 or updated_count > 0:
+                    st.success(f"Импорт завершен! Добавлено новых: {added_count}, обновлено: {updated_count}. (Пропущено пустых строк: {skipped_count})")
+                    session.close()
+                    st.rerun()
+                else:
+                    st.warning(f"Ни одна строка не была импортирована. Проверьте, точно ли колонки в файле называются «Название» и «Категория». Пропущено строк: {skipped_count}")
+                
+        except Exception as e:
+            st.error(f"Ошибка при чтении файла: {e}")
                 
                 session.commit()
                 st.success(f"Импорт завершен! Добавлено новых: {added_count}, обновлено: {updated_count}.")
