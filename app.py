@@ -455,6 +455,86 @@ elif page == "📚 Справочник и Управление":
         except Exception as e:
             st.error(f"Ошибка при чтении файла: {e}")
 
+    st.header("✏️ Интерактивный справочник товаров")
+    st.write("Вы можете редактировать ячейки прямо в таблице, добавлять новые строки внизу или удалять ненужные, а затем нажать кнопку сохранения.")
+    
+    session = Session()
+    products = session.query(Product).order_by(Product.name.asc()).all()
+    
+    # Формируем DataFrame для редактора
+    df_products = pd.DataFrame([{
+        "id": p.id,
+        "Название": p.name,
+        "Категория": p.category,
+        "Плотность": p.density,
+        "Вес тары": p.tare_weight
+    } for p in products]) if products else pd.DataFrame(columns=["id", "Название", "Категория", "Плотность", "Вес тары"])
+    
+    # Интерактивный редактор таблицы с поддержкой добавления и удаления строк
+    edited_df = st.data_editor(
+        df_products, 
+        key="product_editor", 
+        hide_index=True,
+        num_rows="dynamic",
+        column_config={
+            "id": st.column_config.NumberColumn("ID", disabled=True),
+            "Категория": st.column_config.SelectboxColumn("Категория", options=["шт", "л", "кг"], required=True)
+        }
+    )
+    
+    if st.button("💾 Сохранить все изменения в базе данных", type="primary"):
+        try:
+            # Получаем текущие ID из базы для отслеживания удалений
+            existing_ids = {p.id for p in products}
+            current_ui_ids = set()
+            
+            for index, row in edited_df.iterrows():
+                row_id = row.get("id")
+                name = str(row.get("Название", "")).strip()
+                category = str(row.get("Категория", "шт")).strip()
+                
+                if not name or name == "nan":
+                    continue
+                
+                density = float(row.get("Плотность", 1.0)) if pd.notna(row.get("Плотность")) else 1.0
+                tare_weight = float(row.get("Вес тары", 0.0)) if pd.notna(row.get("Вес тары")) else 0.0
+                
+                # Если это существующий товар (есть ID и он есть в базе)
+                if pd.notna(row_id) and int(row_id) in existing_ids:
+                    db_prod = session.query(Product).filter_by(id=int(row_id)).first()
+                    if db_prod:
+                        db_prod.name = name
+                        db_prod.category = category
+                        db_prod.density = density
+                        db_prod.tare_weight = tare_weight
+                        current_ui_ids.add(db_prod.id)
+                else:
+                    # Если строка новая (ID пустой или новый)
+                    new_prod = Product(
+                        name=name,
+                        category=category,
+                        density=density,
+                        tare_weight=tare_weight
+                    )
+                    session.add(new_prod)
+                    session.flush() # Получаем ID для новой записи
+                    current_ui_ids.add(new_prod.id)
+            
+            # Удаляем из базы те товары, которые были удалены пользователем в таблице
+            for p in products:
+                if p.id not in current_ui_ids:
+                    session.delete(p)
+                    
+            session.commit()
+            st.success("Изменения успешно сохранены в облачной базе данных!")
+            session.close()
+            st.rerun()
+            
+        except Exception as e:
+            session.rollback()
+            session.close()
+            st.error(f"Ошибка при сохранении изменений: {e}")
+
     st.divider()
     st.header("👤 Управление учетными записями")
     
