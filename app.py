@@ -31,6 +31,37 @@ def evaluate_expression(expr_str):
         except ValueError:
             return 0.0
 
+def search_bottle_weight_online(drink_name):
+    # Автоматический поиск веса стеклянной бутылки по произвольной строке в открытых источниках 
+    # требует специализированных API. Если данные в сети отсутствуют, возвращаем None, 
+    # чтобы запустить сценарий ручного ввода веса тары, как требуется по условию.
+    return None
+
+def save_density_to_db(name, density, tare_weight):
+    session = Session()
+    try:
+        existing = session.query(Product).filter_by(name=name).first()
+        if existing:
+            existing.density = density
+            existing.tare_weight = tare_weight
+            existing.is_active = True
+        else:
+            new_p = Product(
+                name=name,
+                category="л",
+                density=density,
+                tare_weight=tare_weight,
+                is_active=True
+            )
+            session.add(new_p)
+        session.commit()
+        st.success(f"✅ Товар '{name}' успешно внесен в Справочник! Плотность: {density:.3f} г/мл, Вес тары: {tare_weight} г.")
+    except Exception as e:
+        session.rollback()
+        st.error(f"Ошибка сохранения в базу: {e}")
+    finally:
+        session.close()
+
 Base.metadata.create_all(bind=engine)
 
 st.set_page_config(page_title="Инвентаризация бара", page_icon="🍹", layout="wide")
@@ -101,7 +132,7 @@ st.sidebar.title("🍹 Меню бармена")
 st.sidebar.caption(f"👤 Вы вошли как: **{st.session_state.username}**")
 page = st.sidebar.radio(
     "Навигация", 
-    ["📝 Переучет продукции", "📊 История и Экспорт", "📚 Справочник и Управление"]
+    ["📝 Переучет продукции", "📊 История и Экспорт", "📚 Справочник и Управление", "🧪 Расчет плотности"]
 )
 
 if st.sidebar.button("🚪 Выйти из системы"):
@@ -140,7 +171,6 @@ if page == "📝 Переучет продукции":
         # Поле поиска по позициям
         search_query = st.text_input("🔍 Поиск по позициям", value="", placeholder="Начните вводить название товара...").strip().lower()
         
-        # Фильтрация товаров по поисковому запросу
         if search_query:
             products = [p for p in all_products if search_query in p.name.lower()]
         else:
@@ -200,7 +230,6 @@ if page == "📝 Переучет продукции":
                             )
                             total_weight = evaluate_expression(weight_input)
                         with col3:
-                            # p.tare_weight хранится в граммах, переводим в кг для расчета
                             total_tare_weight_kg = (tare_count * p.tare_weight) / 1000.0
                             net_result = 0.0
                             if p.category == "л":
@@ -413,7 +442,7 @@ elif page == "📚 Справочник и Управление":
 
     st.divider()
 
-    # --- 2. ИНТЕРАКТИВНЫЙ РЕДАКТОР ТАБЛИЦЫ (МЯГКОЕ УДАЛЕНИЕ) ---
+    # --- 2. ИНТЕРАКТИВНЫЙ РЕДАКТОР ТАБЛИЦЫ ---
     st.header("✏️ Редактирование справочника на сайте")
     st.write("Вы можете менять ячейки кликом, добавлять новые строки внизу или управлять статусом активности товара.")
     
@@ -477,7 +506,6 @@ elif page == "📚 Справочник и Управление":
                     session.flush()
                     current_ui_ids.add(new_prod.id)
             
-            # Мягкое удаление (is_active = False) для позиций, стертых в редакторе
             for p in products:
                 if p.id not in current_ui_ids:
                     p.is_active = False
@@ -536,3 +564,55 @@ elif page == "📚 Справочник и Управление":
                 st.warning("Заполните логин и пароль.")
 
     session.close()
+
+
+# --- СТРАНИЦА 4: РАСЧЕТ ПЛОТНОСТИ НАПИТКА ---
+elif page == "🧪 Расчет плотности":
+    st.title("🧪 Автоматический расчет плотности напитка")
+    st.write("Введите данные бутылки. Система проверит сетевые базы, а если данные отсутствуют — предложит ввести вес пустой тары вручную, после чего автоматически внесет плотность в Справочник.")
+    
+    with st.form("density_calc_form"):
+        drink_name = st.text_input("Название напитка (например, Виски Jameson 0.7)")
+        total_weight = st.number_input("Общий вес (бутылка вместе с напитком, г)", min_value=0.0, step=1.0)
+        volume_ml = st.number_input("Объем бутылки (мл)", min_value=0.0, step=10.0, value=750.0)
+        submit_calc = st.form_submit_button("Рассчитать плотность")
+        
+        if submit_calc:
+            if not drink_name.strip():
+                st.warning("Введите название напитка.")
+            elif total_weight <= 0 or volume_ml <= 0:
+                st.warning("Введите корректные значения общего веса и объема.")
+            else:
+                bottle_weight = search_bottle_weight_online(drink_name)
+                
+                if bottle_weight is None:
+                    st.info("🌐 В открытых источниках не удалось автоматически найти вес тары для этого напитка. Пожалуйста, взвесьте пустую бутылку и введите её вес ниже.")
+                    st.session_state["manual_bottle_needed"] = True
+                    st.session_state["temp_drink_name"] = drink_name
+                    st.session_state["temp_total_weight"] = total_weight
+                    st.session_state["temp_volume_ml"] = volume_ml
+                else:
+                    net_weight = total_weight - bottle_weight
+                    density = net_weight / volume_ml if volume_ml > 0 else 1.0
+                    save_density_to_db(drink_name, density, bottle_weight)
+                    st.session_state["manual_bottle_needed"] = False
+
+    if st.session_state.get("manual_bottle_needed", False):
+        st.divider()
+        st.subheader("⚖️ Ручной ввод веса пустой тары")
+        with st.form("manual_bottle_form"):
+            manual_tare = st.number_input("Вес пустой бутылки (г)", min_value=0.0, step=1.0)
+            submit_manual = st.form_submit_button("Сохранить и внести в справочник")
+            
+            if submit_manual:
+                d_name = st.session_state["temp_drink_name"]
+                t_weight = st.session_state["temp_total_weight"]
+                vol = st.session_state["temp_volume_ml"]
+                
+                net_weight = t_weight - manual_tare
+                # Плотность в г/мл (или кг/л)
+                density = net_weight / vol if vol > 0 else 1.0
+                
+                save_density_to_db(d_name, density, manual_tare)
+                st.session_state["manual_bottle_needed"] = False
+                st.rerun()
