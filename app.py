@@ -140,7 +140,7 @@ if page == "📝 Переучет продукции":
                 
                 if p.category == "шт":
                     val = st.number_input(
-                        f"Количество", 
+                        "Количество", 
                         min_value=0.0, 
                         step=1.0, 
                         value=p_data.get("val", None), 
@@ -156,7 +156,7 @@ if page == "📝 Переучет продукции":
                     col1, col2, col3 = st.columns(3)
                     with col1:
                         tare_count = st.number_input(
-                            f"Кол-во тары", 
+                            "Кол-во тары", 
                             min_value=0.0, 
                             step=1.0, 
                             value=p_data.get("tare", None), 
@@ -164,7 +164,7 @@ if page == "📝 Переучет продукции":
                         )
                     with col2:
                         total_weight = st.number_input(
-                            f"Общий вес (г)", 
+                            "Общий вес (г)", 
                             min_value=0.0, 
                             step=10.0, 
                             value=p_data.get("weight", None), 
@@ -317,7 +317,7 @@ elif page == "📚 Справочник и Управление":
     st.header("📥 Загрузка справочника из таблицы")
     st.write("Загрузите Excel-файл (`.xlsx`) или CSV со списком продукции. Сайт автоматически считает названия, категории и параметры тары.")
     
-   uploaded_file = st.file_uploader("Выберите файл с товарами", type=["xlsx", "csv"])
+    uploaded_file = st.file_uploader("Выберите файл с товарами", type=["xlsx", "csv"])
     
     if uploaded_file is not None:
         try:
@@ -370,15 +370,7 @@ elif page == "📚 Справочник и Управление":
                     session.close()
                     st.rerun()
                 else:
-                    st.warning(f"Ни одна строка не была импортирована. Проверьте, точно ли колонки в файле называются «Название» и «Категория». Пропущено строк: {skipped_count}")
-                
-        except Exception as e:
-            st.error(f"Ошибка при чтении файла: {e}")
-                
-                session.commit()
-                st.success(f"Импорт завершен! Добавлено новых: {added_count}, обновлено: {updated_count}.")
-                session.close()
-                st.rerun()
+                    st.warning(f"Ни одна строка не была импортирована. Проверьте заголовки колонок. Пропущено строк: {skipped_count}")
                 
         except Exception as e:
             st.error(f"Ошибка при чтении файла: {e}")
