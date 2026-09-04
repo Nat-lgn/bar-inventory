@@ -17,3 +17,10 @@ class InventoryRecord(Base):
     product_id = Column(Integer, ForeignKey("products.id"))
     current_weight = Column(Float, default=0.0)
     checked_at = Column(DateTime)
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    username = Column(String, unique=True, nullable=False)
+    password = Column(String, nullable=False) # Для продакшена лучше хешировать, но для внутреннего бара можно хранить напрямую или через hashlib
