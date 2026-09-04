@@ -444,7 +444,6 @@ elif page == "📚 Справочник и Управление":
             st.error(f"Ошибка при сохранении: {e}")
 
     session.close()
-            st.rerun()
             
         except Exception as e:
             session.rollback()
