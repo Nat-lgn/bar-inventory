@@ -4,14 +4,12 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from database import Session, engine
-from models import Base, Product, InventoryRecord
+from models import Base, Product, InventoryRecord, User
 import hashlib
 
 def init_default_user(session):
-    # Проверяем, есть ли хоть один пользователь в базе
     existing_user = session.query(User).first()
     if not existing_user:
-        # Создаем администратора по умолчанию
         default_user = User(username="admin", password="bar123")
         session.add(default_user)
         session.commit()
@@ -21,28 +19,6 @@ Base.metadata.create_all(bind=engine)
 st.set_page_config(page_title="Инвентаризация бара", page_icon="🍹", layout="wide")
 
 # --- СИСТЕМА АВТОРИЗАЦИИ ---
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
-
-if not st.session_state.authenticated:
-    st.title("🔒 Доступ ограничен")
-    st.write("Пожалуйста, введите пароль для доступа к системе инвентаризации.")
-    
-    with st.form("login_form"):
-        password_input = st.text_input("Пароль", type="password")
-        submit_login = st.form_submit_button("Войти")
-        
-        if submit_login:
-            if password_input == "bar123":
-                st.session_state.authenticated = True
-                st.success("Успешный вход!")
-                st.rerun()
-            else:
-                st.error("Неверный пароль. Попробуйте еще раз.")
-    st.stop()
-
-# --- ОСНОВНОЙ ИНТЕРФЕЙС И БОКОВАЯ ПАНЕЛЬ НАВИГАЦИИ ---
-# Инициализация дефолтного пользователя при старте
 session = Session()
 init_default_user(session)
 session.close()
@@ -90,8 +66,9 @@ if page == "📝 Переучет продукции":
     st.title("📝 Массовый переучет продукции")
     st.write("Посчитанные товары уходят под шлагбаум. Шкала прогресса показывает, сколько позиций уже обработано.")
     
-    # Загружаем продукцию в алфавитном порядке
+    session = Session()
     products = session.query(Product).order_by(Product.name.asc()).all()
+    session.close()
     
     if not products:
         st.warning("Сначала добавьте товары во вкладке «Справочник и Управление»!")
@@ -220,6 +197,7 @@ if page == "📝 Переучет продукции":
             try:
                 current_time = datetime.now()
                 saved_count = 0
+                session = Session()
                 
                 for p in products:
                     data = st.session_state.inv_data.get(p.id, {})
@@ -235,6 +213,7 @@ if page == "📝 Переучет продукции":
                             saved_count += 1
                 
                 session.commit()
+                session.close()
                 if saved_count > 0:
                     st.success(f"Успешно сохранено позиций: {saved_count}!")
                     st.session_state.inv_data = {}
@@ -244,6 +223,7 @@ if page == "📝 Переучет продукции":
                     st.warning("Нет заполненных данных для сохранения.")
             except Exception as e:
                 session.rollback()
+                session.close()
                 st.error(f"Ошибка при сохранении: {e}")
 
 
@@ -251,6 +231,7 @@ if page == "📝 Переучет продукции":
 elif page == "📊 История и Экспорт":
     st.title("📊 История переучетов по датам")
     
+    session = Session()
     records = session.query(InventoryRecord).order_by(InventoryRecord.checked_at.desc()).all()
     
     if records:
@@ -280,7 +261,6 @@ elif page == "📊 История и Экспорт":
             df_history = pd.DataFrame(history_data)
             st.dataframe(df_history, use_container_width=True)
             
-            # Генерация Excel файла (.xlsx) прямо в памяти
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 df_history.to_excel(writer, index=False, sheet_name='Переучет смены')
@@ -294,11 +274,14 @@ elif page == "📊 История и Экспорт":
             )
     else:
         st.info("История переучетов пока пуста.")
+    session.close()
 
 
 # --- СТРАНИЦА 3: СПРАВОЧНИК И УПРАВЛЕНИЕ ---
 elif page == "📚 Справочник и Управление":
     st.title("📚 Справочник и Управление товарами")
+    
+    session = Session()
     
     st.header("Добавить новый товар")
     prod_category = st.selectbox("Категория", ["шт", "л", "кг"])
@@ -328,6 +311,7 @@ elif page == "📚 Справочник и Управление":
                     session.add(new_product)
                     session.commit()
                     st.success(f"Товар '{prod_name}' добавлен!")
+                    session.close()
                     st.rerun()
                 except Exception as e:
                     session.rollback()
@@ -360,6 +344,7 @@ elif page == "📚 Справочник и Управление":
                         db_prod.tare_weight = row["Вес тары"]
                 session.commit()
                 st.success("Все изменения успешно сохранены!")
+                session.close()
                 st.rerun()
             except Exception as e:
                 session.rollback()
@@ -374,8 +359,52 @@ elif page == "📚 Справочник и Управление":
                 session.delete(target)
                 session.commit()
                 st.success(f"Товар '{prod_to_delete}' удален из справочника!")
+                session.close()
                 st.rerun()
     else:
         st.info("Справочник пуст.")
 
-session.close()
+    st.divider()
+    st.header("👤 Управление учетными записями")
+    
+    with st.form("change_password_form"):
+        st.subheader("Изменить пароль текущего аккаунта")
+        new_password = st.text_input("Новый пароль", type="password")
+        confirm_password = st.text_input("Подтвердите новый пароль", type="password")
+        submit_pass = st.form_submit_button("Обновить пароль")
+        
+        if submit_pass:
+            if new_password and new_password == confirm_password:
+                current_user = session.query(User).filter_by(username=st.session_state.username).first()
+                if current_user:
+                    current_user.password = new_password
+                    session.commit()
+                    st.success("Пароль успешно изменен!")
+                else:
+                    st.warning("Пользователь не найден.")
+            else:
+                st.warning("Пароли не совпадают или пусты.")
+
+    with st.form("add_user_form"):
+        st.subheader("Добавить нового сотрудника")
+        new_username = st.text_input("Логин нового пользователя")
+        new_user_password = st.text_input("Пароль нового пользователя", type="password")
+        submit_user = st.form_submit_button("Создать пользователя")
+        
+        if submit_user:
+            if new_username.strip() and new_user_password.strip():
+                try:
+                    user_exists = session.query(User).filter_by(username=new_username.strip()).first()
+                    if user_exists:
+                        st.warning("Пользователь с таким логином уже существует.")
+                    else:
+                        add_user = User(username=new_username.strip(), password=new_user_password.strip())
+                        session.add(add_user)
+                        session.commit()
+                        st.success(f"Пользователь '{new_username}' успешно создан!")
+                except Exception as e:
+                    st.error(f"Ошибка создания пользователя: {e}")
+            else:
+                st.warning("Заполните логин и пароль.")
+
+    session.close()
