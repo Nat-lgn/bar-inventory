@@ -115,10 +115,10 @@ if page == "📝 Переучет продукции":
     st.write("Посчитанные товары уходят под шлагбаум. Шкала прогресса показывает, сколько позиций уже обработано.")
     
     session = Session()
-    products = session.query(Product).filter_by(is_active=True).order_by(Product.name.asc()).all()
+    all_products = session.query(Product).filter_by(is_active=True).order_by(Product.name.asc()).all()
     session.close()
     
-    if not products:
+    if not all_products:
         st.warning("Сначала добавьте активные товары во вкладке «Справочник и Управление»!")
     else:
         if "inv_data" not in st.session_state:
@@ -137,9 +137,18 @@ if page == "📝 Переучет продукции":
                 w = d.get("weight")
                 return w is not None and w > 0
 
-        total_count = len(products)
-        completed_products = [p for p in products if is_completed(p)]
-        completed_count = len(completed_products)
+        # Поле поиска по позициям
+        search_query = st.text_input("🔍 Поиск по позициям", value="", placeholder="Начните вводить название товара...").strip().lower()
+        
+        # Фильтрация товаров по поисковому запросу
+        if search_query:
+            products = [p for p in all_products if search_query in p.name.lower()]
+        else:
+            products = all_products
+
+        total_count = len(all_products)
+        completed_all = [p for p in all_products if is_completed(p)]
+        completed_count = len(completed_all)
         progress_val = completed_count / total_count if total_count > 0 else 0.0
 
         # --- ШКАЛА ПРОГРЕССА ---
@@ -147,99 +156,103 @@ if page == "📝 Переучет продукции":
         st.progress(progress_val)
         st.divider()
 
-        uncompleted_products = [p for p in products if not is_completed(p)]
+        if not products:
+            st.info("По вашему запросу ничего не найдено.")
+        else:
+            uncompleted_products = [p for p in products if not is_completed(p)]
+            completed_products = [p for p in products if is_completed(p)]
 
-        # --- ВВЕРХУ: НЕПОСЧИТАННЫЕ ТОВАРЫ В ВИДЕ КАРТОЧЕК ---
-        for p in uncompleted_products:
-            with st.container(border=True):
-                st.markdown(f"#### {p.name} <span style='font-size:14px; color:gray;'>({p.category})</span>", unsafe_allow_html=True)
-                
-                p_data = st.session_state.inv_data.get(p.id, {})
-                
-                if p.category == "шт":
-                    val_input = st.text_input(
-                        "Количество (можно формулой, например: 10+5)", 
-                        value=str(p_data.get("val_str", "")), 
-                        key=f"val_str_{p.id}"
-                    )
-                    val = evaluate_expression(val_input)
+            # --- ВВЕРХУ: НЕПОСЧИТАННЫЕ ТОВАРЫ В ВИДЕ КАРТОЧЕК ---
+            for p in uncompleted_products:
+                with st.container(border=True):
+                    st.markdown(f"#### {p.name} <span style='font-size:14px; color:gray;'>({p.category})</span>", unsafe_allow_html=True)
                     
-                    if val_input != p_data.get("val_str"):
-                        st.session_state.inv_data[p.id] = {"val_str": val_input, "val": val}
-                        if p.id in st.session_state.edit_mode:
-                            st.session_state.edit_mode.remove(p.id)
-                        st.rerun()
-                
-                elif p.category in ["кг", "л"]:
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        tare_input = st.text_input(
-                            "Кол-во тары", 
-                            value=str(p_data.get("tare_str", "")), 
-                            key=f"tare_str_{p.id}"
+                    p_data = st.session_state.inv_data.get(p.id, {})
+                    
+                    if p.category == "шт":
+                        val_input = st.text_input(
+                            "Количество (можно формулой, например: 10+5)", 
+                            value=str(p_data.get("val_str", "")), 
+                            key=f"val_str_{p.id}"
                         )
-                        tare_count = evaluate_expression(tare_input)
-                    with col2:
-                        weight_input = st.text_input(
-                            "Общий вес (г) [калькулятор]", 
-                            value=str(p_data.get("weight_str", "")), 
-                            key=f"weight_str_{p.id}"
-                        )
-                        total_weight = evaluate_expression(weight_input)
-                    with col3:
-                        total_tare_weight = tare_count * p.tare_weight
-                        net_result = 0.0
-                        if p.category == "л":
-                            net_weight = total_weight - total_tare_weight if total_weight > total_tare_weight else 0.0
-                            net_result = net_weight / p.density / 1000 if p.density > 0 else 0.0
-                        elif p.category == "кг":
-                            net_weight = total_weight - total_tare_weight if total_tare_weight > 0 else total_weight
-                            net_result = net_weight if net_weight > 0 else 0.0
+                        val = evaluate_expression(val_input)
                         
-                        st.metric(label="Результат", value=f"{net_result:.3f} {p.category}")
+                        if val_input != p_data.get("val_str"):
+                            st.session_state.inv_data[p.id] = {"val_str": val_input, "val": val}
+                            if p.id in st.session_state.edit_mode:
+                                st.session_state.edit_mode.remove(p.id)
+                            st.rerun()
                     
-                    if tare_input != p_data.get("tare_str") or weight_input != p_data.get("weight_str"):
-                        st.session_state.inv_data[p.id] = {
-                            "tare_str": tare_input, 
-                            "tare": tare_count, 
-                            "weight_str": weight_input, 
-                            "weight": total_weight
-                        }
-                        if p.id in st.session_state.edit_mode:
-                            st.session_state.edit_mode.remove(p.id)
-                        st.rerun()
+                    elif p.category in ["кг", "л"]:
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            tare_input = st.text_input(
+                                "Кол-во тары", 
+                                value=str(p_data.get("tare_str", "")), 
+                                key=f"tare_str_{p.id}"
+                            )
+                            tare_count = evaluate_expression(tare_input)
+                        with col2:
+                            weight_input = st.text_input(
+                                "Общий вес (г) [калькулятор]", 
+                                value=str(p_data.get("weight_str", "")), 
+                                key=f"weight_str_{p.id}"
+                            )
+                            total_weight = evaluate_expression(weight_input)
+                        with col3:
+                            total_tare_weight = tare_count * p.tare_weight
+                            net_result = 0.0
+                            if p.category == "л":
+                                net_weight = total_weight - total_tare_weight if total_weight > total_tare_weight else 0.0
+                                net_result = net_weight / p.density / 1000 if p.density > 0 else 0.0
+                            elif p.category == "кг":
+                                net_weight = total_weight - total_tare_weight if total_tare_weight > 0 else total_weight
+                                net_result = net_weight if net_weight > 0 else 0.0
+                            
+                            st.metric(label="Результат", value=f"{net_result:.3f} {p.category}")
+                        
+                        if tare_input != p_data.get("tare_str") or weight_input != p_data.get("weight_str"):
+                            st.session_state.inv_data[p.id] = {
+                                "tare_str": tare_input, 
+                                "tare": tare_count, 
+                                "weight_str": weight_input, 
+                                "weight": total_weight
+                            }
+                            if p.id in st.session_state.edit_mode:
+                                st.session_state.edit_mode.remove(p.id)
+                            st.rerun()
 
-        # --- ШЛАГБАУМ ---
-        if completed_products:
-            st.markdown(
-                """
-                <div style="display: flex; align-items: center; text-align: center; margin: 30px 0 20px 0;">
-                    <hr style="flex: 1; border: none; border-top: 2px dashed #f49e92;">
-                    <span style="padding: 0 15px; color: #f49e92; font-weight: bold; font-size: 15px;">🛑 Шлагбаум: Посчитанная продукция (нажмите для редактирования)</span>
-                    <hr style="flex: 1; border: none; border-top: 2px dashed #f49e92;">
-                </div>
-                """, 
-                unsafe_allow_html=True
-            )
+            # --- ШЛАГБАУМ ---
+            if completed_products:
+                st.markdown(
+                    """
+                    <div style="display: flex; align-items: center; text-align: center; margin: 30px 0 20px 0;">
+                        <hr style="flex: 1; border: none; border-top: 2px dashed #f49e92;">
+                        <span style="padding: 0 15px; color: #f49e92; font-weight: bold; font-size: 15px;">🛑 Шлагбаум: Посчитанная продукция (нажмите для редактирования)</span>
+                        <hr style="flex: 1; border: none; border-top: 2px dashed #f49e92;">
+                    </div>
+                    """, 
+                    unsafe_allow_html=True
+                )
 
-            for p in completed_products:
-                d = st.session_state.inv_data.get(p.id, {})
-                res_str = ""
-                if p.category == "шт":
-                    res_str = f"{d.get('val', 0)} шт"
-                else:
-                    t_val = d.get("tare", 0.0) or 0.0
-                    w_val = d.get("weight", 0.0) or 0.0
-                    total_tare_weight = t_val * p.tare_weight
-                    if p.category == "л":
-                        net = (w_val - total_tare_weight) / p.density / 1000 if (w_val - total_tare_weight) > 0 and p.density > 0 else 0.0
+                for p in completed_products:
+                    d = st.session_state.inv_data.get(p.id, {})
+                    res_str = ""
+                    if p.category == "шт":
+                        res_str = f"{d.get('val', 0)} шт"
                     else:
-                        net = (w_val - total_tare_weight) if total_tare_weight > 0 else w_val
-                    res_str = f"{net:.3f} {p.category}"
+                        t_val = d.get("tare", 0.0) or 0.0
+                        w_val = d.get("weight", 0.0) or 0.0
+                        total_tare_weight = t_val * p.tare_weight
+                        if p.category == "л":
+                            net = (w_val - total_tare_weight) / p.density / 1000 if (w_val - total_tare_weight) > 0 and p.density > 0 else 0.0
+                        else:
+                            net = (w_val - total_tare_weight) if total_tare_weight > 0 else w_val
+                        res_str = f"{net:.3f} {p.category}"
 
-                if st.button(f"✅ {p.name} — Результат: {res_str} (кликните для изменения)", key=f"edit_btn_{p.id}"):
-                    st.session_state.edit_mode.add(p.id)
-                    st.rerun()
+                    if st.button(f"✅ {p.name} — Результат: {res_str} (кликните для изменения)", key=f"edit_btn_{p.id}"):
+                        st.session_state.edit_mode.add(p.id)
+                        st.rerun()
 
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("💾 Сохранить результаты переучета смены", type="primary"):
@@ -248,7 +261,7 @@ if page == "📝 Переучет продукции":
                 saved_count = 0
                 session = Session()
                 
-                for p in products:
+                for p in all_products:
                     data = st.session_state.inv_data.get(p.id, {})
                     if p.category == "шт":
                         val = data.get("val", 0.0)
