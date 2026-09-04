@@ -80,7 +80,7 @@ if not st.session_state.authenticated:
     st.stop()
 
 st.sidebar.title("🍹 Меню бармена")
-st.sidebar.caption(👤 Вы вошли как: **{st.session_state.username}**")
+st.sidebar.caption(f"👤 Вы вошли как: **{st.session_state.username}**")
 page = st.sidebar.radio(
     "Навигация", 
     ["📝 Переучет продукции", "📊 История и Экспорт", "📚 Справочник и Управление"]
