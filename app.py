@@ -5,6 +5,16 @@ import pandas as pd
 from datetime import datetime
 from database import Session, engine
 from models import Base, Product, InventoryRecord
+import hashlib
+
+def init_default_user(session):
+    # Проверяем, есть ли хоть один пользователь в базе
+    existing_user = session.query(User).first()
+    if not existing_user:
+        # Создаем администратора по умолчанию
+        default_user = User(username="admin", password="bar123")
+        session.add(default_user)
+        session.commit()
 
 Base.metadata.create_all(bind=engine)
 
