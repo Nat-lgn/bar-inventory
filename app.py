@@ -1,3 +1,4 @@
+# app.py
 import os
 import io
 import streamlit as st
@@ -97,11 +98,11 @@ if page == "📝 Переучет продукции":
     st.write("Посчитанные товары уходят под шлагбаум. Шкала прогресса показывает, сколько позиций уже обработано.")
     
     session = Session()
-    products = session.query(Product).order_by(Product.name.asc()).all()
+    products = session.query(Product).filter_by(is_active=True).order_by(Product.name.asc()).all()
     session.close()
     
     if not products:
-        st.warning("Сначала добавьте товары во вкладке «Справочник и Управление»!")
+        st.warning("Сначала добавьте активные товары во вкладке «Справочник и Управление»!")
     else:
         if "inv_data" not in st.session_state:
             st.session_state.inv_data = {}
@@ -131,9 +132,9 @@ if page == "📝 Переучет продукции":
 
         uncompleted_products = [p for p in products if not is_completed(p)]
 
-        # --- ВВЕРХУ: НЕПОСЧИТАННЫЕ ТОВАРЫ В ВИДЕ АККУРАТНЫХ КАРТОЧЕК ---
+        # --- ВВЕРХУ: НЕПОСЧИТАННЫЕ ТОВАРЫ В ВИДЕ КАРТОЧЕК ---
         for p in uncompleted_products:
-            with st.container(border=True):
+            with st.container(border=True): #[cite: 1]
                 st.markdown(f"#### {p.name} <span style='font-size:14px; color:gray;'>({p.category})</span>", unsafe_allow_html=True)
                 
                 p_data = st.session_state.inv_data.get(p.id, {})
@@ -195,9 +196,9 @@ if page == "📝 Переучет продукции":
             st.markdown(
                 """
                 <div style="display: flex; align-items: center; text-align: center; margin: 30px 0 20px 0;">
-                    <hr style="flex: 1; border: none; border-top: 2px dashed #ff4b4b;">
-                    <span style="padding: 0 15px; color: #ff4b4b; font-weight: bold; font-size: 15px;">🛑 Шлагбаум: Посчитанная продукция (нажмите для редактирования)</span>
-                    <hr style="flex: 1; border: none; border-top: 2px dashed #ff4b4b;">
+                    <hr style="flex: 1; border: none; border-top: 2px dashed #f49e92;">
+                    <span style="padding: 0 15px; color: #f49e92; font-weight: bold; font-size: 15px;">🛑 Шлагбаум: Посчитанная продукция (нажмите для редактирования)</span>
+                    <hr style="flex: 1; border: none; border-top: 2px dashed #f49e92;">
                 </div>
                 """, 
                 unsafe_allow_html=True
@@ -352,13 +353,15 @@ elif page == "📚 Справочник и Управление":
                         existing_product.category = category
                         existing_product.density = density
                         existing_product.tare_weight = tare_weight
+                        existing_product.is_active = True
                         updated_count += 1
                     else:
                         new_product = Product(
                             name=name,
                             category=category,
                             density=density,
-                            tare_weight=tare_weight
+                            tare_weight=tare_weight,
+                            is_active=True
                         )
                         session.add(new_product)
                         added_count += 1
@@ -377,9 +380,9 @@ elif page == "📚 Справочник и Управление":
 
     st.divider()
 
-    # --- 2. ИНТЕРАКТИВНЫЙ РЕДАКТОР ТАБЛИЦЫ ---
+    # --- 2. ИНТЕРАКТИВНЫЙ РЕДАКТОР ТАБЛИЦЫ (МЯГКОЕ УДАЛЕНИЕ) ---
     st.header("✏️ Редактирование справочника на сайте")
-    st.write("Вы можете менять ячейки кликом, добавлять новые строки внизу или удалять ненужные товары прямо в таблице.")
+    st.write("Вы можете менять ячейки кликом, добавлять новые строки внизу или управлять статусом активности товара.")
     
     products = session.query(Product).order_by(Product.name.asc()).all()
     
@@ -388,8 +391,9 @@ elif page == "📚 Справочник и Управление":
         "Название": p.name,
         "Категория": p.category,
         "Плотность": p.density,
-        "Вес тары": p.tare_weight
-    } for p in products]) if products else pd.DataFrame(columns=["id", "Название", "Категория", "Плотность", "Вес тары"])
+        "Вес тары": p.tare_weight,
+        "Активен": p.is_active
+    } for p in products]) if products else pd.DataFrame(columns=["id", "Название", "Категория", "Плотность", "Вес тары", "Активен"])
     
     edited_df = st.data_editor(
         df_products, 
@@ -397,7 +401,8 @@ elif page == "📚 Справочник и Управление":
         num_rows="dynamic",
         column_config={
             "id": st.column_config.NumberColumn("ID", disabled=True),
-            "Категория": st.column_config.SelectboxColumn("Категория", options=["шт", "л", "кг"], required=True)
+            "Категория": st.column_config.SelectboxColumn("Категория", options=["шт", "л", "кг"], required=True),
+            "Активен": st.column_config.CheckboxColumn("Активен")
         }
     )
     
@@ -410,6 +415,7 @@ elif page == "📚 Справочник и Управление":
                 row_id = row.get("id")
                 name = str(row.get("Название", "")).strip()
                 category = str(row.get("Категория", "шт")).strip()
+                is_active_val = bool(row.get("Активен", True))
                 
                 if not name or name == "nan":
                     continue
@@ -424,21 +430,24 @@ elif page == "📚 Справочник и Управление":
                         db_prod.category = category
                         db_prod.density = density
                         db_prod.tare_weight = tare_weight
+                        db_prod.is_active = is_active_val
                         current_ui_ids.add(db_prod.id)
                 else:
                     new_prod = Product(
                         name=name,
                         category=category,
                         density=density,
-                        tare_weight=tare_weight
+                        tare_weight=tare_weight,
+                        is_active=is_active_val
                     )
                     session.add(new_prod)
                     session.flush()
                     current_ui_ids.add(new_prod.id)
             
+            # Вместо жесткого удаления делаем мягкое (is_active = False) для позиций, стертых в редакторе
             for p in products:
                 if p.id not in current_ui_ids:
-                    session.delete(p)
+                    p.is_active = False
                     
             session.commit()
             st.success("Все изменения успешно сохранены в базе данных!")
