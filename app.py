@@ -200,14 +200,15 @@ if page == "📝 Переучет продукции":
                             )
                             total_weight = evaluate_expression(weight_input)
                         with col3:
-                            total_tare_weight = tare_count * p.tare_weight
+                            # p.tare_weight хранится в граммах, переводим в кг для расчета
+                            total_tare_weight_kg = (tare_count * p.tare_weight) / 1000.0
                             net_result = 0.0
                             if p.category == "л":
-                                net_weight = total_weight - total_tare_weight if total_weight > total_tare_weight else 0.0
-                                net_result = net_weight / p.density / 1000 if p.density > 0 else 0.0
+                                net_weight_kg = total_weight - total_tare_weight_kg if total_weight > total_tare_weight_kg else 0.0
+                                net_result = net_weight_kg / p.density if p.density > 0 else 0.0
                             elif p.category == "кг":
-                                net_weight = total_weight - total_tare_weight if total_tare_weight > 0 else total_weight
-                                net_result = net_weight if net_weight > 0 else 0.0
+                                net_weight_kg = total_weight - total_tare_weight_kg if total_tare_weight_kg > 0 else total_weight
+                                net_result = net_weight_kg if net_weight_kg > 0 else 0.0
                             
                             st.metric(label="Результат", value=f"{net_result:.3f} {p.category}")
                         
@@ -243,11 +244,12 @@ if page == "📝 Переучет продукции":
                     else:
                         t_val = d.get("tare", 0.0) or 0.0
                         w_val = d.get("weight", 0.0) or 0.0
-                        total_tare_weight = t_val * p.tare_weight
+                        total_tare_weight_kg = (t_val * p.tare_weight) / 1000.0
                         if p.category == "л":
-                            net = (w_val - total_tare_weight) / p.density / 1000 if (w_val - total_tare_weight) > 0 and p.density > 0 else 0.0
+                            net_kg = (w_val - total_tare_weight_kg) if (w_val - total_tare_weight_kg) > 0 else 0.0
+                            net = net_kg / p.density if p.density > 0 else 0.0
                         else:
-                            net = (w_val - total_tare_weight) if total_tare_weight > 0 else w_val
+                            net = (w_val - total_tare_weight_kg) if total_tare_weight_kg > 0 else w_val
                         res_str = f"{net:.3f} {p.category}"
 
                     if st.button(f"✅ {p.name} — Результат: {res_str} (кликните для изменения)", key=f"edit_btn_{p.id}"):
