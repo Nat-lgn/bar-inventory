@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime
+# models.py
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, Boolean
 from database import Base
 
 class Product(Base):
@@ -9,6 +10,7 @@ class Product(Base):
     category = Column(String, nullable=False)
     density = Column(Float, default=1.0)
     tare_weight = Column(Float, default=0.0)
+    is_active = Column(Boolean, default=True)
 
 class InventoryRecord(Base):
     __tablename__ = "inventory_records"
@@ -23,4 +25,4 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     username = Column(String, unique=True, nullable=False)
-    password = Column(String, nullable=False) # Для продакшена лучше хешировать, но для внутреннего бара можно хранить напрямую или через hashlib
+    password = Column(String, nullable=False)
