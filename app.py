@@ -313,96 +313,14 @@ elif page == "📚 Справочник и Управление":
     
     session = Session()
     
-    st.header("Добавить новый товар")
-    prod_category = st.selectbox("Категория", ["шт", "л", "кг"])
-    
-    prod_density = 1.0
-    prod_tare = 0.0
-    
-    if prod_category == "л":
-        prod_density = st.number_input("Плотность (г/мл)", value=1.0, step=0.01)
-        prod_tare = st.number_input("Вес одной единицы тары (г)", value=0.0, step=10.0)
-    elif prod_category == "кг":
-        prod_tare = st.number_input("Вес одной единицы тары (г)", value=0.0, step=10.0)
-
-    with st.form("add_product_form"):
-        prod_name = st.text_input("Название товара")
-        submit_product = st.form_submit_button("Сохранить в справочник")
-        
-        if submit_product:
-            if prod_name.strip():
-                try:
-                    new_product = Product(
-                        name=prod_name,
-                        category=prod_category,
-                        density=prod_density,
-                        tare_weight=prod_tare
-                    )
-                    session.add(new_product)
-                    session.commit()
-                    st.success(f"Товар '{prod_name}' добавлен!")
-                    session.close()
-                    st.rerun()
-                except Exception as e:
-                    session.rollback()
-                    st.error(f"Ошибка (возможно, такой товар уже есть): {e}")
-            else:
-                st.warning("Название не может быть пустым!")
-
-    st.header("✏️ Редактирование и удаление справочника")
-    products = session.query(Product).order_by(Product.name.asc()).all()
-    
-    if products:
-        df_products = pd.DataFrame([{
-            "id": p.id,
-            "Название": p.name,
-            "Категория": p.category,
-            "Плотность": p.density,
-            "Вес тары": p.tare_weight
-        } for p in products])
-        
-        edited_df = st.data_editor(df_products, key="product_editor", hide_index=True)
-        
-        if st.button("💾 Сохранить изменения в таблице"):
-            try:
-                for index, row in edited_df.iterrows():
-                    db_prod = session.query(Product).filter_by(id=row["id"]).first()
-                    if db_prod:
-                        db_prod.name = row["Название"]
-                        db_prod.category = row["Категория"]
-                        db_prod.density = row["Плотность"]
-                        db_prod.tare_weight = row["Вес тары"]
-                session.commit()
-                st.success("Все изменения успешно сохранены!")
-                session.close()
-                st.rerun()
-            except Exception as e:
-                session.rollback()
-                st.error(f"Ошибка при сохранении: {e}")
-        
-        st.divider()
-        st.subheader("🗑️ Удаление товара")
-        prod_to_delete = st.selectbox("Выберите товар для удаления", [p.name for p in products], key="del_select")
-        if st.button("Удалить выбранный товар", type="secondary"):
-            target = session.query(Product).filter_by(name=prod_to_delete).first()
-            if target:
-                session.delete(target)
-                session.commit()
-                st.success(f"Товар '{prod_to_delete}' удален из справочника!")
-                session.close()
-                st.rerun()
-    else:
-        st.info("Справочник пуст.")
-
-    st.divider()
-    st.header("📥 Массовая загрузка товаров из таблицы")
-    st.write("Загрузите Excel-файл (`.xlsx`) или CSV со списком продукции, чтобы не добавлять каждый товар вручную.")
+    # --- 1. МАССОВАЯ ЗАГРУЗКА ИЗ ФАЙЛА ---
+    st.header("📥 Загрузка справочника из таблицы")
+    st.write("Загрузите Excel-файл (`.xlsx`) или CSV со списком продукции. Сайт автоматически считает названия, категории и параметры тары.")
     
     uploaded_file = st.file_uploader("Выберите файл с товарами", type=["xlsx", "csv"])
     
     if uploaded_file is not None:
         try:
-            # Читаем файл в зависимости от его расширения
             if uploaded_file.name.endswith('.csv'):
                 df_upload = pd.read_csv(uploaded_file)
             else:
@@ -411,13 +329,11 @@ elif page == "📚 Справочник и Управление":
             st.write("Предпросмотр загруженных данных:")
             st.dataframe(df_upload.head(), use_container_width=True)
             
-            if st.button("🚀 Импортировать товары в базу данных", type="primary"):
-                session = Session()
+            if st.button("🚀 Импортировать данные в базу", type="primary"):
                 added_count = 0
                 updated_count = 0
                 
                 for _, row in df_upload.iterrows():
-                    # Ожидаем колонки: Название, Категория, Плотность (опц), Вес тары (опц)
                     name = str(row.get("Название", "")).strip()
                     category = str(row.get("Категория", "шт")).strip()
                     
@@ -427,17 +343,14 @@ elif page == "📚 Справочник и Управление":
                     density = float(row.get("Плотность", 1.0)) if pd.notna(row.get("Плотность")) else 1.0
                     tare_weight = float(row.get("Вес тары", 0.0)) if pd.notna(row.get("Вес тары")) else 0.0
                     
-                    # Проверяем, есть ли уже такой товар в базе
                     existing_product = session.query(Product).filter_by(name=name).first()
                     
                     if existing_product:
-                        # Обновляем параметры существующего товара
                         existing_product.category = category
                         existing_product.density = density
                         existing_product.tare_weight = tare_weight
                         updated_count += 1
                     else:
-                        # Создаем новый товар
                         new_product = Product(
                             name=name,
                             category=category,
@@ -448,20 +361,21 @@ elif page == "📚 Справочник и Управление":
                         added_count += 1
                 
                 session.commit()
-                session.close()
                 st.success(f"Импорт завершен! Добавлено новых: {added_count}, обновлено: {updated_count}.")
+                session.close()
                 st.rerun()
                 
         except Exception as e:
             st.error(f"Ошибка при чтении файла: {e}")
 
-    st.header("✏️ Интерактивный справочник товаров")
-    st.write("Вы можете редактировать ячейки прямо в таблице, добавлять новые строки внизу или удалять ненужные, а затем нажать кнопку сохранения.")
+    st.divider()
+
+    # --- 2. ИНТЕРАКТИВНЫЙ РЕДАКТОР ТАБЛИЦЫ ---
+    st.header("✏️ Редактирование справочника на сайте")
+    st.write("Вы можете менять ячейки кликом, добавлять новые строки внизу или удалять ненужные товары прямо в таблице.")
     
-    session = Session()
     products = session.query(Product).order_by(Product.name.asc()).all()
     
-    # Формируем DataFrame для редактора
     df_products = pd.DataFrame([{
         "id": p.id,
         "Название": p.name,
@@ -470,9 +384,8 @@ elif page == "📚 Справочник и Управление":
         "Вес тары": p.tare_weight
     } for p in products]) if products else pd.DataFrame(columns=["id", "Название", "Категория", "Плотность", "Вес тары"])
     
-    # Интерактивный редактор таблицы с поддержкой добавления и удаления строк
     edited_df = st.data_editor(
-        df_products,
+        df_products, 
         hide_index=True,
         num_rows="dynamic",
         column_config={
@@ -481,9 +394,8 @@ elif page == "📚 Справочник и Управление":
         }
     )
     
-    if st.button("💾 Сохранить все изменения в базе данных", type="primary"):
+    if st.button("💾 Сохранить изменения в базе данных", type="primary"):
         try:
-            # Получаем текущие ID из базы для отслеживания удалений
             existing_ids = {p.id for p in products}
             current_ui_ids = set()
             
@@ -498,7 +410,6 @@ elif page == "📚 Справочник и Управление":
                 density = float(row.get("Плотность", 1.0)) if pd.notna(row.get("Плотность")) else 1.0
                 tare_weight = float(row.get("Вес тары", 0.0)) if pd.notna(row.get("Вес тары")) else 0.0
                 
-                # Если это существующий товар (есть ID и он есть в базе)
                 if pd.notna(row_id) and int(row_id) in existing_ids:
                     db_prod = session.query(Product).filter_by(id=int(row_id)).first()
                     if db_prod:
@@ -508,7 +419,6 @@ elif page == "📚 Справочник и Управление":
                         db_prod.tare_weight = tare_weight
                         current_ui_ids.add(db_prod.id)
                 else:
-                    # Если строка новая (ID пустой или новый)
                     new_prod = Product(
                         name=name,
                         category=category,
@@ -516,17 +426,24 @@ elif page == "📚 Справочник и Управление":
                         tare_weight=tare_weight
                     )
                     session.add(new_prod)
-                    session.flush() # Получаем ID для новой записи
+                    session.flush()
                     current_ui_ids.add(new_prod.id)
             
-            # Удаляем из базы те товары, которые были удалены пользователем в таблице
             for p in products:
                 if p.id not in current_ui_ids:
                     session.delete(p)
                     
             session.commit()
-            st.success("Изменения успешно сохранены в облачной базе данных!")
+            st.success("Все изменения успешно сохранены в базе данных!")
             session.close()
+            st.rerun()
+            
+        except Exception as e:
+            session.rollback()
+            session.close()
+            st.error(f"Ошибка при сохранении: {e}")
+
+    session.close()
             st.rerun()
             
         except Exception as e:
