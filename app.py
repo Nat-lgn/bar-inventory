@@ -42,7 +42,38 @@ if not st.session_state.authenticated:
     st.stop()
 
 # --- ОСНОВНОЙ ИНТЕРФЕЙС И БОКОВАЯ ПАНЕЛЬ НАВИГАЦИИ ---
+# Инициализация дефолтного пользователя при старте
 session = Session()
+init_default_user(session)
+session.close()
+
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+if "username" not in st.session_state:
+    st.session_state.username = ""
+
+if not st.session_state.authenticated:
+    st.title("🔒 Доступ ограничен")
+    st.write("Пожалуйста, введите логин и пароль для доступа к системе.")
+    
+    with st.form("login_form"):
+        username_input = st.text_input("Логин")
+        password_input = st.text_input("Пароль", type="password")
+        submit_login = st.form_submit_button("Войти")
+        
+        if submit_login:
+            session = Session()
+            user = session.query(User).filter_by(username=username_input.strip(), password=password_input).first()
+            session.close()
+            
+            if user:
+                st.session_state.authenticated = True
+                st.session_state.username = user.username
+                st.success("Успешный вход!")
+                st.rerun()
+            else:
+                st.error("Неверный логин или пароль.")
+    st.stop()
 
 st.sidebar.title("🍹 Меню бармена")
 page = st.sidebar.radio(
