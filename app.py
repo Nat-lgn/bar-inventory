@@ -395,6 +395,67 @@ elif page == "📚 Справочник и Управление":
         st.info("Справочник пуст.")
 
     st.divider()
+    st.header("📥 Массовая загрузка товаров из таблицы")
+    st.write("Загрузите Excel-файл (`.xlsx`) или CSV со списком продукции, чтобы не добавлять каждый товар вручную.")
+    
+    uploaded_file = st.file_uploader("Выберите файл с товарами", type=["xlsx", "csv"])
+    
+    if uploaded_file is not None:
+        try:
+            # Читаем файл в зависимости от его расширения
+            if uploaded_file.name.endswith('.csv'):
+                df_upload = pd.read_csv(uploaded_file)
+            else:
+                df_upload = pd.read_excel(uploaded_file)
+            
+            st.write("Предпросмотр загруженных данных:")
+            st.dataframe(df_upload.head(), use_container_width=True)
+            
+            if st.button("🚀 Импортировать товары в базу данных", type="primary"):
+                session = Session()
+                added_count = 0
+                updated_count = 0
+                
+                for _, row in df_upload.iterrows():
+                    # Ожидаем колонки: Название, Категория, Плотность (опц), Вес тары (опц)
+                    name = str(row.get("Название", "")).strip()
+                    category = str(row.get("Категория", "шт")).strip()
+                    
+                    if not name or name == "nan":
+                        continue
+                        
+                    density = float(row.get("Плотность", 1.0)) if pd.notna(row.get("Плотность")) else 1.0
+                    tare_weight = float(row.get("Вес тары", 0.0)) if pd.notna(row.get("Вес тары")) else 0.0
+                    
+                    # Проверяем, есть ли уже такой товар в базе
+                    existing_product = session.query(Product).filter_by(name=name).first()
+                    
+                    if existing_product:
+                        # Обновляем параметры существующего товара
+                        existing_product.category = category
+                        existing_product.density = density
+                        existing_product.tare_weight = tare_weight
+                        updated_count += 1
+                    else:
+                        # Создаем новый товар
+                        new_product = Product(
+                            name=name,
+                            category=category,
+                            density=density,
+                            tare_weight=tare_weight
+                        )
+                        session.add(new_product)
+                        added_count += 1
+                
+                session.commit()
+                session.close()
+                st.success(f"Импорт завершен! Добавлено новых: {added_count}, обновлено: {updated_count}.")
+                st.rerun()
+                
+        except Exception as e:
+            st.error(f"Ошибка при чтении файла: {e}")
+
+    st.divider()
     st.header("👤 Управление учетными записями")
     
     with st.form("change_password_form"):
