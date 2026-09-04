@@ -443,13 +443,6 @@ elif page == "📚 Справочник и Управление":
             session.close()
             st.error(f"Ошибка при сохранении: {e}")
 
-    session.close()
-            
-        except Exception as e:
-            session.rollback()
-            session.close()
-            st.error(f"Ошибка при сохранении изменений: {e}")
-
     st.divider()
     st.header("👤 Управление учетными записями")
     
