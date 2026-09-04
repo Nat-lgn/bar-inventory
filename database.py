@@ -1,14 +1,9 @@
-import os
+import streamlit as st
 from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.orm import sessionmaker
 
-# Проверяем, где мы запущены. В Streamlit Cloud папка /mount/src/ существует.
-# Если мы в облаке, сохраняем базу в безопасное место, иначе — локально в папку проекта.
-if os.path.exists("/mount/src"):
-    DB_PATH = "sqlite:////mount/src/bar-inventory/database.db"
-else:
-    DB_PATH = "sqlite:///database.db"
+# Считываем строку подключения из секретов Streamlit
+DATABASE_URL = st.secrets["database"]["url"]
 
-engine = create_engine(DB_PATH, echo=True)
-Base = declarative_base()
+engine = create_engine(DATABASE_URL)
 Session = sessionmaker(bind=engine)
