@@ -472,8 +472,7 @@ elif page == "📚 Справочник и Управление":
     
     # Интерактивный редактор таблицы с поддержкой добавления и удаления строк
     edited_df = st.data_editor(
-        df_products, 
-        key="product_editor", 
+        df_products,
         hide_index=True,
         num_rows="dynamic",
         column_config={
