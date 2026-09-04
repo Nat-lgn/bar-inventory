@@ -32,9 +32,6 @@ def evaluate_expression(expr_str):
             return 0.0
 
 def search_bottle_weight_online(drink_name):
-    # Автоматический поиск веса стеклянной бутылки по произвольной строке в открытых источниках 
-    # требует специализированных API. Если данные в сети отсутствуют, возвращаем None, 
-    # чтобы запустить сценарий ручного ввода веса тары, как требуется по условию.
     return None
 
 def save_density_to_db(name, density, tare_weight):
@@ -55,7 +52,7 @@ def save_density_to_db(name, density, tare_weight):
             )
             session.add(new_p)
         session.commit()
-        st.success(f"✅ Товар '{name}' успешно внесен в Справочник! Плотность: {density:.3f} г/мл, Вес тары: {tare_weight} г.")
+        st.success(f"✅ Товар '{name}' успешно внесен в Справочник! Плотность: {density:.3f} кг/л, Вес тары: {tare_weight} кг.")
     except Exception as e:
         session.rollback()
         st.error(f"Ошибка сохранения в базу: {e}")
@@ -230,14 +227,14 @@ if page == "📝 Переучет продукции":
                             )
                             total_weight = evaluate_expression(weight_input)
                         with col3:
-                            total_tare_weight_kg = (tare_count * p.tare_weight) / 1000.0
+                            total_tare_weight = tare_count * p.tare_weight
                             net_result = 0.0
                             if p.category == "л":
-                                net_weight_kg = total_weight - total_tare_weight_kg if total_weight > total_tare_weight_kg else 0.0
-                                net_result = net_weight_kg / p.density if p.density > 0 else 0.0
+                                net_weight = total_weight - total_tare_weight if total_weight > total_tare_weight else 0.0
+                                net_result = net_weight / p.density if p.density > 0 else 0.0
                             elif p.category == "кг":
-                                net_weight_kg = total_weight - total_tare_weight_kg if total_tare_weight_kg > 0 else total_weight
-                                net_result = net_weight_kg if net_weight_kg > 0 else 0.0
+                                net_weight = total_weight - total_tare_weight if total_tare_weight > 0 else total_weight
+                                net_result = net_weight if net_weight > 0 else 0.0
                             
                             st.metric(label="Результат", value=f"{net_result:.3f} {p.category}")
                         
@@ -273,12 +270,11 @@ if page == "📝 Переучет продукции":
                     else:
                         t_val = d.get("tare", 0.0) or 0.0
                         w_val = d.get("weight", 0.0) or 0.0
-                        total_tare_weight_kg = (t_val * p.tare_weight) / 1000.0
+                        total_tare_weight = t_val * p.tare_weight
                         if p.category == "л":
-                            net_kg = (w_val - total_tare_weight_kg) if (w_val - total_tare_weight_kg) > 0 else 0.0
-                            net = net_kg / p.density if p.density > 0 else 0.0
+                            net = (w_val - total_tare_weight) / p.density if (w_val - total_tare_weight) > 0 and p.density > 0 else 0.0
                         else:
-                            net = (w_val - total_tare_weight_kg) if total_tare_weight_kg > 0 else w_val
+                            net = (w_val - total_tare_weight) if total_tare_weight > 0 else w_val
                         res_str = f"{net:.3f} {p.category}"
 
                     if st.button(f"✅ {p.name} — Результат: {res_str} (кликните для изменения)", key=f"edit_btn_{p.id}"):
@@ -378,7 +374,7 @@ elif page == "📚 Справочник и Управление":
     
     # --- 1. МАССОВАЯ ЗАГРУЗКА ИЗ ФАЙЛА ---
     st.header("📥 Загрузка справочника из таблицы")
-    st.write("Загрузите Excel-файл (`.xlsx`) или CSV со списком продукции. Убедитесь, что у файла есть шапка с заголовками: **Название**, **Категория**.")
+    st.write("Загрузите Excel-файл (`.xlsx`) или CSV со списком продукции. Убедитесь, что у файла есть шапка с заголовками: **Название**, **Категория** (вес тары указывается в кг).")
     
     uploaded_file = st.file_uploader("Выберите файл с товарами", type=["xlsx", "csv"])
     
@@ -444,7 +440,7 @@ elif page == "📚 Справочник и Управление":
 
     # --- 2. ИНТЕРАКТИВНЫЙ РЕДАКТОР ТАБЛИЦЫ ---
     st.header("✏️ Редактирование справочника на сайте")
-    st.write("Вы можете менять ячейки кликом, добавлять новые строки внизу или управлять статусом активности товара.")
+    st.write("Вы можете менять ячейки кликом (вес тары указывается в кг), добавлять новые строки внизу или управлять статусом активности товара.")
     
     products = session.query(Product).order_by(Product.name.asc()).all()
     
@@ -453,9 +449,9 @@ elif page == "📚 Справочник и Управление":
         "Название": p.name,
         "Категория": p.category,
         "Плотность": p.density,
-        "Вес тары": p.tare_weight,
+        "Вес тары (кг)": p.tare_weight,
         "Активен": p.is_active
-    } for p in products]) if products else pd.DataFrame(columns=["id", "Название", "Категория", "Плотность", "Вес тары", "Активен"])
+    } for p in products]) if products else pd.DataFrame(columns=["id", "Название", "Категория", "Плотность", "Вес тары (кг)", "Активен"])
     
     edited_df = st.data_editor(
         df_products, 
@@ -483,7 +479,7 @@ elif page == "📚 Справочник и Управление":
                     continue
                 
                 density = float(row.get("Плотность", 1.0)) if pd.notna(row.get("Плотность")) else 1.0
-                tare_weight = float(row.get("Вес тары", 0.0)) if pd.notna(row.get("Вес тары")) else 0.0
+                tare_weight = float(row.get("Вес тары (кг)", 0.0)) if pd.notna(row.get("Вес тары (кг)")) else 0.0
                 
                 if pd.notna(row_id) and int(row_id) in existing_ids:
                     db_prod = session.query(Product).filter_by(id=int(row_id)).first()
@@ -569,11 +565,11 @@ elif page == "📚 Справочник и Управление":
 # --- СТРАНИЦА 4: РАСЧЕТ ПЛОТНОСТИ НАПИТКА ---
 elif page == "🧪 Расчет плотности":
     st.title("🧪 Автоматический расчет плотности напитка")
-    st.write("Введите данные бутылки. Система проверит сетевые базы, а если данные отсутствуют — предложит ввести вес пустой тары вручную, после чего автоматически внесет плотность в Справочник.")
+    st.write("Введите данные бутылки в килограммах. Система проверит сетевые базы, а если данные отсутствуют — предложит ввести вес пустой тары вручную в кг, после чего автоматически внесет плотность в Справочник.")
     
     with st.form("density_calc_form"):
         drink_name = st.text_input("Название напитка (например, Виски Jameson 0.7)")
-        total_weight = st.number_input("Общий вес (бутылка вместе с напитком, г)", min_value=0.0, step=1.0)
+        total_weight = st.number_input("Общий вес (бутылка вместе с напитком, кг)", min_value=0.0, step=0.01)
         volume_ml = st.number_input("Объем бутылки (мл)", min_value=0.0, step=10.0, value=750.0)
         submit_calc = st.form_submit_button("Рассчитать плотность")
         
@@ -586,14 +582,15 @@ elif page == "🧪 Расчет плотности":
                 bottle_weight = search_bottle_weight_online(drink_name)
                 
                 if bottle_weight is None:
-                    st.info("🌐 В открытых источниках не удалось автоматически найти вес тары для этого напитка. Пожалуйста, взвесьте пустую бутылку и введите её вес ниже.")
+                    st.info("🌐 В открытых источниках не удалось автоматически найти вес тары для этого напитка. Пожалуйста, взвесьте пустую бутылку и введите её вес в кг ниже.")
                     st.session_state["manual_bottle_needed"] = True
                     st.session_state["temp_drink_name"] = drink_name
                     st.session_state["temp_total_weight"] = total_weight
                     st.session_state["temp_volume_ml"] = volume_ml
                 else:
                     net_weight = total_weight - bottle_weight
-                    density = net_weight / volume_ml if volume_ml > 0 else 1.0
+                    volume_l = volume_ml / 1000.0
+                    density = net_weight / volume_l if volume_l > 0 else 1.0
                     save_density_to_db(drink_name, density, bottle_weight)
                     st.session_state["manual_bottle_needed"] = False
 
@@ -601,7 +598,7 @@ elif page == "🧪 Расчет плотности":
         st.divider()
         st.subheader("⚖️ Ручной ввод веса пустой тары")
         with st.form("manual_bottle_form"):
-            manual_tare = st.number_input("Вес пустой бутылки (г)", min_value=0.0, step=1.0)
+            manual_tare = st.number_input("Вес пустой бутылки (кг)", min_value=0.0, step=0.001)
             submit_manual = st.form_submit_button("Сохранить и внести в справочник")
             
             if submit_manual:
@@ -610,8 +607,8 @@ elif page == "🧪 Расчет плотности":
                 vol = st.session_state["temp_volume_ml"]
                 
                 net_weight = t_weight - manual_tare
-                # Плотность в г/мл (или кг/л)
-                density = net_weight / vol if vol > 0 else 1.0
+                volume_l = vol / 1000.0
+                density = net_weight / volume_l if volume_l > 0 else 1.0
                 
                 save_density_to_db(d_name, density, manual_tare)
                 st.session_state["manual_bottle_needed"] = False
