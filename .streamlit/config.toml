@@ -1,0 +1,2 @@
+[database]
+url = "postgresql://[username]:[password]@[host]/[dbname]?sslmode=require"
