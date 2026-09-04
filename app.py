@@ -194,7 +194,7 @@ if page == "📝 Переучет продукции":
                             tare_count = evaluate_expression(tare_input)
                         with col2:
                             weight_input = st.text_input(
-                                "Общий вес (г) [калькулятор]", 
+                                "Общий вес (кг) [калькулятор]", 
                                 value=str(p_data.get("weight_str", "")), 
                                 key=f"weight_str_{p.id}"
                             )
