@@ -6,43 +6,8 @@ from datetime import datetime
 from database import Session, engine
 from models import Base, Product, InventoryRecord, User
 
-st.sidebar.title("🍹 Меню бармена")
-st.sidebar.caption(f"👤 Вы вошли как: **{st.session_state.username}**")
-
-# Инициализируем сохраненную страницу в session_state
-if "current_page" not in st.session_state:
-    st.session_state.current_page = "📝 Переучет продукции"
-
-page = st.sidebar.radio(
-    "Навигация", 
-    ["📝 Переучет продукции", "📊 История и Экспорт", "📚 Справочник", "👤 Личный кабинет"],
-    key="nav_radio"
-)
-
-# Проверяем, изменилась ли категория меню
-if page != st.session_state.current_page:
-    st.session_state.current_page = page
-    # Внедряем JS-скрипт, который находит кнопку сворачивания сайдбара и кликает её
-    st.markdown("""
-        <script>
-            setTimeout(function() {
-                const doc = window.parent.document;
-                const buttons = doc.querySelectorAll('button');
-                for (let btn of buttons) {
-                    const label = btn.getAttribute('aria-label');
-                    if (label && (label.includes('Collapse') || label.includes('свернуть'))) {
-                        btn.click();
-                        break;
-                    }
-                }
-            }, 100);
-        </script>
-    """, unsafe_allow_html=True)
-
-if st.sidebar.button("🚪 Выйти из системы"):
-    st.session_state.authenticated = False
-    st.session_state.username = ""
-    st.rerun()
+# Инициализация страницы должна идти одной из первых перед рендерингом виджетов
+st.set_page_config(page_title="Инвентаризация бара", page_icon="🍹", layout="wide")
 
 def init_default_user(session):
     existing_user = session.query(User).first()
@@ -70,8 +35,6 @@ def evaluate_expression(expr_str):
             return 0.0
 
 Base.metadata.create_all(bind=engine)
-
-st.set_page_config(page_title="Инвентаризация бара", page_icon="🍹", layout="wide")
 
 session = Session()
 init_default_user(session)
@@ -134,14 +97,41 @@ if not st.session_state.authenticated:
                     session.close()
     st.stop()
 
+# --- БОКОВОЕ МЕНЮ И НАВИГАЦИЯ ---
 st.sidebar.title("🍹 Меню бармена")
 st.sidebar.caption(f"👤 Вы вошли как: **{st.session_state.username}**")
+
+if "current_page" not in st.session_state:
+    st.session_state.current_page = "📝 Переучет продукции"
+
 page = st.sidebar.radio(
     "Навигация", 
-    ["📝 Переучет продукции", "📊 История и Экспорт", "📚 Справочник", "👤 Личный кабинет"]
+    ["📝 Переучет продукции", "📊 История и Экспорт", "📚 Справочник", "👤 Личный кабинет"],
+    key="nav_radio"
 )
 
-if st.sidebar.button("🚪 Выйти из системы"):
+# Проверяем, изменилась ли категория меню для автоматического закрытия сайдбара
+if page != st.session_state.current_page:
+    st.session_state.current_page = page
+    st.markdown("""
+        <script>
+            setTimeout(function() {
+                const doc = window.parent.document;
+                const buttons = doc.querySelectorAll('button');
+                for (let btn of buttons) {
+                    const label = (btn.getAttribute('aria-label') || '').toLowerCase();
+                    const testid = (btn.getAttribute('data-testid') || '').toLowerCase();
+                    if (label.includes('collapse') || label.includes('свернуть') || testid.includes('collapse')) {
+                        btn.click();
+                        break;
+                    }
+                }
+            }, 150);
+        </script>
+    """, unsafe_allow_html=True)
+
+# Уникальный ключ для кнопки выхода предотвращает ошибку StreamlitDuplicateElementId
+if st.sidebar.button("🚪 Выйти из системы", key="logout_button_sidebar"):
     st.session_state.authenticated = False
     st.session_state.username = ""
     st.rerun()
