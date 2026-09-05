@@ -108,20 +108,34 @@ if not st.session_state.authenticated:
 
 st.sidebar.title(t["menu_title"])
 st.sidebar.caption(f"{t['logged_in']}: **{st.session_state.username}**")
+st.sidebar.divider()
 
+# Инициализация текущей страницы
 if "current_page" not in st.session_state:
     st.session_state.current_page = t["p1"]
 
-page = st.sidebar.radio(
-    t["nav"], 
-    [t["p1"], t["p2"], t["p3"], t["p4"]],
-    key="nav_radio"
-)
+st.sidebar.markdown(f"**{t['nav']}**")
 
-if page != st.session_state.current_page:
-    st.session_state.current_page = page
+# Навигация с помощью красивых больших кнопок
+nav_items = [
+    t["p1"],
+    t["p2"],
+    t["p3"],
+    t["p4"]
+]
 
-if st.sidebar.button(t["logout"], key="logout_button_sidebar"):
+for item in nav_items:
+    is_active = (st.session_state.current_page == item)
+    btn_type = "primary" if is_active else "secondary"
+    if st.sidebar.button(item, key=f"nav_btn_{item}", use_container_width=True, type=btn_type):
+        if st.session_state.current_page != item:
+            st.session_state.current_page = item
+            st.rerun()
+
+page = st.session_state.current_page
+
+st.sidebar.divider()
+if st.sidebar.button(t["logout"], key="logout_button_sidebar", use_container_width=True):
     st.session_state.authenticated = False
     st.session_state.username = ""
     st.rerun()
@@ -173,10 +187,8 @@ if page == t["p1"]:
             st.info("Ничего не найдено / Нічого не знайдено.")
         else:
             if st.session_state.keep_completed_in_place:
-                # Режим: оставлять позиции на месте
                 render_products = products
             else:
-                # Режим: шлагбаум (разделение на невыполненные и выполненные)
                 uncompleted_products = [p for p in products if not is_completed(p)]
                 completed_products = [p for p in products if is_completed(p)]
                 render_products = uncompleted_products
@@ -200,7 +212,7 @@ if page == t["p1"]:
                                 value=str(p_data.get("val_str", "")), 
                                 key=f"val_str_{p.id}",
                                 label_visibility="collapsed",
-                                placeholder="Кол-во"
+                                placeholder="Кол-во / формула"
                             )
                         val = evaluate_expression(val_input)
                         with col_res:
@@ -259,7 +271,6 @@ if page == t["p1"]:
                                 st.session_state.edit_mode.remove(p.id)
                             st.rerun()
 
-            # Шлагбаум отображаем только если настройка "оставлять на месте" выключена
             if not st.session_state.keep_completed_in_place and completed_products:
                 st.markdown(
                     f"""
@@ -613,7 +624,6 @@ elif page == t["p4"]:
     st.title(t["cabinet_title"])
     st.write(t["cabinet_desc"])
 
-    # --- НАСТРОЙКИ ИНТЕРФЕЙСА ---
     st.subheader(t["settings_title"])
     st.session_state.keep_completed_in_place = st.checkbox(
         t["keep_in_place_label"],
