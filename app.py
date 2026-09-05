@@ -620,7 +620,7 @@ elif page == t["p3"]:
                         new_density = st.number_input(f"Плотность #{p.id}", value=float(p.density or 1.0), step=0.01, key=f"c_density_{p.id}", label_visibility="collapsed")
                     else:
                         st.markdown("<p style='text-align: center; color: gray; margin-top: 8px;'>—</p>", unsafe_allow_html=True)
-                        new_density = 1.0  длительная заглушка по умолчанию
+                        new_density = 1.0
                 
                 with col_tare:
                     if new_cat in ["л", "кг"]:
