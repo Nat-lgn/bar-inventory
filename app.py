@@ -407,57 +407,6 @@ elif page == t["p2"]:
     session.close()
 
 # --- СТРАНИЦА 3: СПРАВОЧНИК ---
-catalog_search = st.text_input(t["search_catalog"], value="", placeholder="...").strip().lower()
-    
-    all_products_query = session.query(Product).order_by(Product.is_active.desc(), Product.name.asc()).all()
-    
-    if catalog_search:
-        filtered_products = [p for p in all_products_query if catalog_search in p.name.lower()]
-    else:
-        filtered_products = all_products_query
-
-    if not filtered_products:
-        st.info("В справочнике пока нет товаров.")
-    else:
-        if "catalog_form_data" not in st.session_state:
-            st.session_state.catalog_form_data = {}
-
-        # --- ШАПКА ТАБЛИЦЫ С ПОДПИСЯМИ ПОЛЕЙ ---
-        col_h1, col_h2, col_h3, col_h4, col_h5 = st.columns([2.5, 1, 1, 1, 0.8], vertical_alignment="center")
-        with col_h1:
-            st.markdown(f"<p style='font-size: 13px; color: gray; margin-bottom: -5px;'><b>{t['lbl_name']}</b></p>", unsafe_allow_html=True)
-        with col_h2:
-            st.markdown(f"<p style='font-size: 13px; color: gray; margin-bottom: -5px;'><b>{t['lbl_cat']}</b></p>", unsafe_allow_html=True)
-        with col_h3:
-            st.markdown(f"<p style='font-size: 13px; color: gray; margin-bottom: -5px;'><b>{t['lbl_density']}</b></p>", unsafe_allow_html=True)
-        with col_h4:
-            st.markdown(f"<p style='font-size: 13px; color: gray; margin-bottom: -5px;'><b>{t['lbl_tare']}</b></p>", unsafe_allow_html=True)
-        with col_h5:
-            st.markdown(f"<p style='font-size: 13px; color: gray; margin-bottom: -5px;'><b>{t['lbl_active']}</b></p>", unsafe_allow_html=True)
-
-        for p in filtered_products:
-            with st.container(border=True):
-                col_name, col_cat, col_density, col_tare, col_active = st.columns([2.5, 1, 1, 1, 0.8], vertical_alignment="center")
-                
-                with col_name:
-                    new_name = st.text_input(f"Название #{p.id}", value=p.name, key=f"c_name_{p.id}", label_visibility="collapsed")
-                with col_cat:
-                    cat_index = ["л", "кг", "шт"].index(p.category) if p.category in ["л", "кг", "шт"] else 0
-                    new_cat = st.selectbox(f"Категория #{p.id}", options=["л", "кг", "шт"], index=cat_index, key=f"c_cat_{p.id}", label_visibility="collapsed")
-                with col_density:
-                    new_density = st.number_input(f"Плотность #{p.id}", value=float(p.density or 1.0), step=0.01, key=f"c_density_{p.id}", label_visibility="collapsed")
-                with col_tare:
-                    new_tare = st.number_input(f"Тара #{p.id}", value=float(p.tare_weight or 0.0), step=0.001, key=f"c_tare_{p.id}", label_visibility="collapsed")
-                with col_active:
-                    new_active = st.checkbox("Активен", value=bool(p.is_active), key=f"c_active_{p.id}")
-
-                st.session_state.catalog_form_data[p.id] = {
-                    "name": new_name,
-                    "category": new_cat,
-                    "density": new_density,
-                    "tare_weight": new_tare,
-                    "is_active": new_active
-                }
 elif page == t["p3"]:
     st.title(t["catalog_title"])
     
@@ -625,10 +574,9 @@ elif page == t["p3"]:
                     except Exception as e:
                         session.rollback()
                         st.error(f"Ошибка: {e}")
-
+    
     catalog_search = st.text_input(t["search_catalog"], value="", placeholder="...").strip().lower()
     
-    # Сортируем: сначала активные, затем неактивные (по алфавиту)
     all_products_query = session.query(Product).order_by(Product.is_active.desc(), Product.name.asc()).all()
     
     if catalog_search:
@@ -639,15 +587,23 @@ elif page == t["p3"]:
     if not filtered_products:
         st.info("В справочнике пока нет товаров.")
     else:
-        # Словарь для сбора измененных данных перед сохранением
         if "catalog_form_data" not in st.session_state:
             st.session_state.catalog_form_data = {}
 
+        # --- ШАПКА ТАБЛИЦЫ С ПОДПИСЯМИ ПОЛЕЙ ---
+        col_h1, col_h2, col_h3, col_h4, col_h5 = st.columns([2.5, 1, 1, 1, 0.8], vertical_alignment="center")
+        with col_h1:
+            st.markdown(f"<p style='font-size: 13px; color: gray; margin-bottom: -5px;'><b>{t['lbl_name']}</b></p>", unsafe_allow_html=True)
+        with col_h2:
+            st.markdown(f"<p style='font-size: 13px; color: gray; margin-bottom: -5px;'><b>{t['lbl_cat']}</b></p>", unsafe_allow_html=True)
+        with col_h3:
+            st.markdown(f"<p style='font-size: 13px; color: gray; margin-bottom: -5px;'><b>{t['lbl_density']}</b></p>", unsafe_allow_html=True)
+        with col_h4:
+            st.markdown(f"<p style='font-size: 13px; color: gray; margin-bottom: -5px;'><b>{t['lbl_tare']}</b></p>", unsafe_allow_html=True)
+        with col_h5:
+            st.markdown(f"<p style='font-size: 13px; color: gray; margin-bottom: -5px;'><b>{t['lbl_active']}</b></p>", unsafe_allow_html=True)
+
         for p in filtered_products:
-            # Если товар неактивен, делаем карточку визуально бледнее
-            card_border_color = "rgba(200, 200, 200, 0.2)" if p.is_active else "rgba(150, 150, 150, 0.08)"
-            opacity_style = "opacity: 1.0;" if p.is_active else "opacity: 0.5;"
-            
             with st.container(border=True):
                 col_name, col_cat, col_density, col_tare, col_active = st.columns([2.5, 1, 1, 1, 0.8], vertical_alignment="center")
                 
@@ -663,7 +619,6 @@ elif page == t["p3"]:
                 with col_active:
                     new_active = st.checkbox("Активен", value=bool(p.is_active), key=f"c_active_{p.id}")
 
-                # Сохраняем значения в словарь сессии
                 st.session_state.catalog_form_data[p.id] = {
                     "name": new_name,
                     "category": new_cat,
@@ -694,6 +649,7 @@ elif page == t["p3"]:
                 st.error(f"Ошибка сохранения: {e}")
 
     session.close()
+
 # --- СТРАНИЦА 4: ЛИЧНЫЙ КАБИНЕТ ---
 elif page == t["p4"]:
     st.title(t["cabinet_title"])
