@@ -407,6 +407,7 @@ elif page == t["p2"]:
     session.close()
 
 # --- СТРАНИЦА 3: СПРАВОЧНИК ---
+# --- СТРАНИЦА 3: СПРАВОЧНИК ---
 elif page == t["p3"]:
     st.title(t["catalog_title"])
     
@@ -530,6 +531,137 @@ elif page == t["p3"]:
             st.error(f"Error: {e}")
 
     st.divider()
+
+    # --- РЕДАКТОР СПРАВОЧНИКА НА ОСНОВЕ КАРТОЧЕК ---
+    st.header(t["editor_header"])
+    st.write(t["editor_desc"])
+
+    # Добавление нового товара вручную через мини-форму
+    with st.expander(t["add_new_product_expander"], expanded=False):
+        with st.form("add_single_product_form"):
+            new_p_name = st.text_input(t["new_prod_name"])
+            new_p_cat = st.selectbox(t["new_prod_cat"], options=["л", "кг", "шт"])
+            col_nc1, col_nc2 = st.columns(2)
+            with col_nc1:
+                new_p_density = st.number_input(t["new_prod_density"], min_value=0.01, value=1.0, step=0.01)
+            with col_nc2:
+                new_p_tare = st.number_input(t["new_prod_tare"], min_value=0.0, value=0.0, step=0.001)
+            
+            submit_new_p = st.form_submit_button(t["add_prod_btn"], type="primary")
+            if submit_new_p:
+                if not new_p_name.strip():
+                    st.warning("Введите название товара.")
+                else:
+                    try:
+                        exist_p = session.query(Product).filter_by(name=new_p_name.strip()).first()
+                        if exist_p:
+                            exist_p.is_active = True
+                            exist_p.category = new_p_cat
+                            exist_p.density = new_p_density
+                            exist_p.tare_weight = new_p_tare
+                        else:
+                            prod_item = Product(
+                                name=new_p_name.strip(),
+                                category=new_p_cat,
+                                density=new_p_density,
+                                tare_weight=new_p_tare,
+                                is_active=True
+                            )
+                            session.add(prod_item)
+                        session.commit()
+                        st.success(f"✅ Товар '{new_p_name}' успешно добавлен!")
+                        session.close()
+                        st.rerun()
+                    except Exception as e:
+                        session.rollback()
+                        st.error(f"Ошибка: {e}")
+    
+    catalog_search = st.text_input(t["search_catalog"], value="", placeholder="...").strip().lower()
+    
+    all_products_query = session.query(Product).order_by(Product.is_active.desc(), Product.name.asc()).all()
+    
+    if catalog_search:
+        filtered_products = [p for p in all_products_query if catalog_search in p.name.lower()]
+    else:
+        filtered_products = all_products_query
+
+    if not filtered_products:
+        st.info("В справочнике пока нет товаров.")
+    else:
+        if "catalog_form_data" not in st.session_state:
+            st.session_state.catalog_form_data = {}
+
+        # --- ШАПКА ТАБЛИЦЫ С ПОДПИСЯМИ ПОЛЕЙ ---
+        col_h1, col_h2, col_h3, col_h4, col_h5 = st.columns([2.5, 1, 1, 1, 0.8], vertical_alignment="center")
+        with col_h1:
+            st.markdown(f"<p style='font-size: 13px; color: gray; margin-bottom: -5px;'><b>{t['lbl_name']}</b></p>", unsafe_allow_html=True)
+        with col_h2:
+            st.markdown(f"<p style='font-size: 13px; color: gray; margin-bottom: -5px;'><b>{t['lbl_cat']}</b></p>", unsafe_allow_html=True)
+        with col_h3:
+            st.markdown(f"<p style='font-size: 13px; color: gray; margin-bottom: -5px;'><b>{t['lbl_density']}</b></p>", unsafe_allow_html=True)
+        with col_h4:
+            st.markdown(f"<p style='font-size: 13px; color: gray; margin-bottom: -5px;'><b>{t['lbl_tare']}</b></p>", unsafe_allow_html=True)
+        with col_h5:
+            st.markdown(f"<p style='font-size: 13px; color: gray; margin-bottom: -5px;'><b>{t['lbl_active']}</b></p>", unsafe_allow_html=True)
+
+        for p in filtered_products:
+            with st.container(border=True):
+                col_name, col_cat, col_density, col_tare, col_active = st.columns([2.5, 1, 1, 1, 0.8], vertical_alignment="center")
+                
+                with col_name:
+                    new_name = st.text_input(f"Название #{p.id}", value=p.name, key=f"c_name_{p.id}", label_visibility="collapsed")
+                
+                with col_cat:
+                    cat_index = ["л", "кг", "шт"].index(p.category) if p.category in ["л", "кг", "шт"] else 0
+                    new_cat = st.selectbox(f"Категория #{p.id}", options=["л", "кг", "шт"], index=cat_index, key=f"c_cat_{p.id}", label_visibility="collapsed")
+                
+                with col_density:
+                    if new_cat == "л":
+                        new_density = st.number_input(f"Плотность #{p.id}", value=float(p.density or 1.0), step=0.01, key=f"c_density_{p.id}", label_visibility="collapsed")
+                    else:
+                        st.markdown("<p style='text-align: center; color: gray; margin-top: 8px;'>—</p>", unsafe_allow_html=True)
+                        new_density = 1.0  длительная заглушка по умолчанию
+                
+                with col_tare:
+                    if new_cat in ["л", "кг"]:
+                        new_tare = st.number_input(f"Тара #{p.id}", value=float(p.tare_weight or 0.0), step=0.001, key=f"c_tare_{p.id}", label_visibility="collapsed")
+                    else:
+                        st.markdown("<p style='text-align: center; color: gray; margin-top: 8px;'>—</p>", unsafe_allow_html=True)
+                        new_tare = 0.0
+                
+                with col_active:
+                    new_active = st.checkbox("Активен", value=bool(p.is_active), key=f"c_active_{p.id}")
+
+                st.session_state.catalog_form_data[p.id] = {
+                    "name": new_name,
+                    "category": new_cat,
+                    "density": new_density if new_cat == "л" else 1.0,
+                    "tare_weight": new_tare if new_cat in ["л", "кг"] else 0.0,
+                    "is_active": new_active
+                }
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button(t["save_catalog_btn"], type="primary", use_container_width=True):
+            try:
+                for p_id, vals in st.session_state.catalog_form_data.items():
+                    db_prod = session.query(Product).filter_by(id=p_id).first()
+                    if db_prod:
+                        db_prod.name = vals["name"].strip()
+                        db_prod.category = vals["category"]
+                        db_prod.density = vals["density"]
+                        db_prod.tare_weight = vals["tare_weight"]
+                        db_prod.is_active = vals["is_active"]
+                
+                session.commit()
+                st.success("Все изменения успешно сохранены в базе данных!")
+                session.close()
+                st.rerun()
+            except Exception as e:
+                session.rollback()
+                session.close()
+                st.error(f"Ошибка сохранения: {e}")
+
+    session.close()
 
     # --- РЕДАКТОР СПРАВОЧНИКА НА ОСНОВЕ КАРТОЧЕК ---
     st.header(t["editor_header"])
