@@ -201,7 +201,7 @@ if page == "📝 Переучет продукции":
                                 net_weight = total_weight - total_tare_weight if total_weight > total_tare_weight else 0.0
                                 net_result = net_weight / p.density if p.density > 0 else 0.0
                             elif p.category == "кг":
-                                net_weight = total_weight - total_tare_weight if total_tare_weight > 0 else total_weight
+                                net_weight = total_weight - total_tare_weight if total_weight > total_tare_weight else total_weight
                                 net_result = net_weight if net_weight > 0 else 0.0
                             
                             st.metric(label="Результат", value=f"{net_result:.3f} {p.category}")
@@ -286,6 +286,7 @@ if page == "📝 Переучет продукции":
 # --- СТРАНИЦА 2: ИСТОРИЯ ПО ДАТАМ И ЭКСПОРТ В EXCEL ---
 elif page == "📊 История и Экспорт":
     st.title("📊 История переучетов по датам")
+    st.write("Нажмите на дату, чтобы раскрыть детали переучета смены.")
     
     session = Session()
     records = session.query(InventoryRecord).order_by(InventoryRecord.checked_at.desc()).all()
@@ -298,26 +299,8 @@ elif page == "📊 История и Экспорт":
                 dates_dict[date_str] = []
             dates_dict[date_str].append(r)
             
-        selected_session_date = st.selectbox("Выберите дату и время переучета смены", list(dates_dict.keys()))
-        
-        col_del1, col_del2 = st.columns([2, 5])
-        with col_del1:
-            if st.button("🗑️ Удалить/Архивировать этот переучет", type="secondary"):
-                try:
-                    target_time = datetime.strptime(selected_session_date, "%Y-%m-%d %H:%M")
-                    # Удаляем записи за эту точную минуту/дату
-                    session.query(InventoryRecord).filter(InventoryRecord.checked_at == target_time).delete()
-                    session.commit()
-                    st.success(f"Переучет за {selected_session_date} успешно удален/архивирован!")
-                    session.close()
-                    st.rerun()
-                except Exception as e:
-                    session.rollback()
-                    st.error(f"Ошибка удаления: {e}")
-        
-        if selected_session_date:
-            session_records = dates_dict.get(selected_session_date, [])
-            if session_records:
+        for date_str, session_records in dates_dict.items():
+            with st.expander(f"📅 Переучет смены от {date_str} (поз: {len(session_records)})"):
                 history_data = []
                 for r in session_records:
                     prod = session.query(Product).filter_by(id=r.product_id).first()
@@ -333,17 +316,32 @@ elif page == "📊 История и Экспорт":
                 df_history = pd.DataFrame(history_data)
                 st.dataframe(df_history, use_container_width=True)
                 
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    df_history.to_excel(writer, index=False, sheet_name='Переучет смены')
-                excel_data = output.getvalue()
-                
-                st.download_button(
-                    label=f"📥 Скачать отчет за {selected_session_date} в формате Excel (.xlsx)",
-                    data=excel_data,
-                    file_name=f"inventory_report_{selected_session_date.replace(':', '-')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+                col_dl, col_del = st.columns([2, 1])
+                with col_dl:
+                    output = io.BytesIO()
+                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                        df_history.to_excel(writer, index=False, sheet_name='Переучет смены')
+                    excel_data = output.getvalue()
+                    
+                    st.download_button(
+                        label=f"📥 Скачать отчет за {date_str} (.xlsx)",
+                        data=excel_data,
+                        file_name=f"inventory_report_{date_str.replace(':', '-')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key=f"dl_{date_str}"
+                    )
+                with col_del:
+                    if st.button("🗑️ Удалить", key=f"del_rec_{date_str}", type="secondary"):
+                        try:
+                            target_time = datetime.strptime(date_str, "%Y-%m-%d %H:%M")
+                            session.query(InventoryRecord).filter(InventoryRecord.checked_at == target_time).delete()
+                            session.commit()
+                            st.success(f"Переучет за {date_str} успешно удален!")
+                            session.close()
+                            st.rerun()
+                        except Exception as e:
+                            session.rollback()
+                            st.error(f"Ошибка удаления: {e}")
     else:
         st.info("История переучетов пока пуста.")
     session.close()
@@ -351,11 +349,11 @@ elif page == "📊 История и Экспорт":
 
 # --- СТРАНИЦА 3: СПРАВОЧНИК ---
 elif page == "📚 Справочник":
-    st.title("📚 Справочник продукции и расчет плотности")
+    st.title("📚 Справочник продукции")
     
     session = Session()
 
-    # --- РАСЧЕТ ПЛОТНОСТИ (ВСТРОЕН В СПРАВОЧНИК) ---
+    # --- РАСЧЕТ ПЛОТНОСТИ ВНУТРИ СПРАВОЧНИКА ---
     with st.expander("🧪 Автоматический расчет плотности напитка", expanded=False):
         st.write("Введите данные бутылки в килограммах. Система рассчитает плотность и автоматически добавит или обновит позицию в справочнике.")
         with st.form("density_calc_form"):
@@ -416,7 +414,7 @@ elif page == "📚 Справочник":
                         st.error(f"Ошибка сохранения: {e}")
 
     st.divider()
-    
+
     # --- 1. МАССОВАЯ ЗАГРУЗКА ИЗ ФАЙЛА ---
     st.header("📥 Загрузка справочника из таблицы")
     st.write("Загрузите Excel-файл (`.xlsx`) или CSV со списком продукции. Убедитесь, что у файла есть шапка с заголовками: **Название**, **Категория** (вес тары указывается в кг).")
@@ -555,7 +553,6 @@ elif page == "📚 Справочник":
                     current_ui_ids.add(new_prod.id)
             
             for p in all_products_query:
-                # Если товар не был отфильтрован текущим поиском, сохраняем его текущий статус неизменным
                 if catalog_search and catalog_search not in p.name.lower():
                     continue
                 if p.id not in current_ui_ids:
