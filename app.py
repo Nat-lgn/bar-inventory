@@ -6,6 +6,44 @@ from datetime import datetime
 from database import Session, engine
 from models import Base, Product, InventoryRecord, User
 
+st.sidebar.title("🍹 Меню бармена")
+st.sidebar.caption(f"👤 Вы вошли как: **{st.session_state.username}**")
+
+# Инициализируем сохраненную страницу в session_state
+if "current_page" not in st.session_state:
+    st.session_state.current_page = "📝 Переучет продукции"
+
+page = st.sidebar.radio(
+    "Навигация", 
+    ["📝 Переучет продукции", "📊 История и Экспорт", "📚 Справочник", "👤 Личный кабинет"],
+    key="nav_radio"
+)
+
+# Проверяем, изменилась ли категория меню
+if page != st.session_state.current_page:
+    st.session_state.current_page = page
+    # Внедряем JS-скрипт, который находит кнопку сворачивания сайдбара и кликает её
+    st.markdown("""
+        <script>
+            setTimeout(function() {
+                const doc = window.parent.document;
+                const buttons = doc.querySelectorAll('button');
+                for (let btn of buttons) {
+                    const label = btn.getAttribute('aria-label');
+                    if (label && (label.includes('Collapse') || label.includes('свернуть'))) {
+                        btn.click();
+                        break;
+                    }
+                }
+            }, 100);
+        </script>
+    """, unsafe_allow_html=True)
+
+if st.sidebar.button("🚪 Выйти из системы"):
+    st.session_state.authenticated = False
+    st.session_state.username = ""
+    st.rerun()
+
 def init_default_user(session):
     existing_user = session.query(User).first()
     if not existing_user:
