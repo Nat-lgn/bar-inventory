@@ -5,6 +5,7 @@ import pandas as pd
 from datetime import datetime
 from database import Session, engine
 from models import Base, Product, InventoryRecord, User
+from locales import TEXTS
 
 def init_default_user(session):
     existing_user = session.query(User).first()
