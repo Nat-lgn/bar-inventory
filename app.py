@@ -6,9 +6,6 @@ from datetime import datetime
 from database import Session, engine
 from models import Base, Product, InventoryRecord, User
 
-# Инициализация страницы должна идти одной из первых перед рендерингом виджетов
-st.set_page_config(page_title="Инвентаризация бара", page_icon="🍹", layout="wide")
-
 def init_default_user(session):
     existing_user = session.query(User).first()
     if not existing_user:
@@ -35,6 +32,8 @@ def evaluate_expression(expr_str):
             return 0.0
 
 Base.metadata.create_all(bind=engine)
+
+st.set_page_config(page_title="Инвентаризация бара", page_icon="🍹", layout="wide")
 
 session = Session()
 init_default_user(session)
@@ -97,7 +96,6 @@ if not st.session_state.authenticated:
                     session.close()
     st.stop()
 
-# --- БОКОВОЕ МЕНЮ И НАВИГАЦИЯ ---
 st.sidebar.title("🍹 Меню бармена")
 st.sidebar.caption(f"👤 Вы вошли как: **{st.session_state.username}**")
 
@@ -110,55 +108,21 @@ page = st.sidebar.radio(
     key="nav_radio"
 )
 
-# Проверяем, изменилась ли категория меню
 if page != st.session_state.current_page:
     st.session_state.current_page = page
-    # Внедряем скрипт с имитацией настоящего клика мыши для React
     st.markdown("""
         <script>
-            function simulateClick(element) {
-                if (!element) return;
-                ['mousedown', 'mouseup', 'click'].forEach(eventType => {
-                    const event = new MouseEvent(eventType, {
-                        bubbles: true,
-                        cancelable: true,
-                        view: window
-                    });
-                    element.dispatchEvent(event);
-                });
-            }
-
-            function tryCollapse() {
+            setTimeout(function() {
                 const doc = window.parent.document;
-                // Ищем кнопку сворачивания сайдбара по официальному testid Streamlit
                 const collapseBtn = doc.querySelector('[data-testid="stSidebarCollapseButton"] button') ||
                                     doc.querySelector('[data-testid="stSidebarCollapseButton"]');
-                
                 if (collapseBtn) {
-                    simulateClick(collapseBtn);
-                    return true;
+                    collapseBtn.click();
                 }
-                
-                // Запасной поиск по всем кнопкам с метками сворачивания
-                const buttons = doc.querySelectorAll('button');
-                for (let btn of buttons) {
-                    const label = (btn.getAttribute('aria-label') || '').toLowerCase();
-                    if (label.includes('collapse') || label.includes('свернуть') || label.includes('close')) {
-                        simulateClick(btn);
-                        return true;
-                    }
-                }
-                return false;
-            }
-
-            // Делаем несколько попыток с небольшой задержкой, чтобы успела пройти перерисовка интерфейса
-            setTimeout(tryCollapse, 150);
-            setTimeout(tryCollapse, 400);
-            setTimeout(tryCollapse, 800);
+            }, 200);
         </script>
     """, unsafe_allow_html=True)
 
-# Уникальный ключ для кнопки выхода предотвращает ошибку StreamlitDuplicateElementId
 if st.sidebar.button("🚪 Выйти из системы", key="logout_button_sidebar"):
     st.session_state.authenticated = False
     st.session_state.username = ""
@@ -167,7 +131,7 @@ if st.sidebar.button("🚪 Выйти из системы", key="logout_button_s
 # --- СТРАНИЦА 1: ПЕРЕУЧЕТ ПРОДУКЦИИ ---
 if page == "📝 Переучет продукции":
     st.title("📝 Массовый переучет продукции")
-    st.write("Посчитанные товары уходят под шлагбаум. Шкала прогресса показывает, сколько позиций уже обработано.")
+    st.write("Посчитанные товары уходят под шлагбаум. Компактные карточки позволяют быстро вводить данные.")
     
     session = Session()
     all_products = session.query(Product).filter_by(is_active=True).order_by(Product.name.asc()).all()
@@ -214,19 +178,30 @@ if page == "📝 Переучет продукции":
             uncompleted_products = [p for p in products if not is_completed(p)]
             completed_products = [p for p in products if is_completed(p)]
 
+            # --- КОМПАКТНЫЕ СТРОЧНЫЕ КАРТОЧКИ ---
             for p in uncompleted_products:
                 with st.container(border=True):
-                    st.markdown(f"#### {p.name} <span style='font-size:14px; color:gray;'>({p.category})</span>", unsafe_allow_html=True)
+                    col_info, col_tare, col_weight, col_res = st.columns([2.2, 1, 1.2, 1.2], vertical_alignment="center")
+                    
+                    with col_info:
+                        st.markdown(f"**{p.name}** <span style='font-size:12px; color:gray;'>({p.category})</span>", unsafe_allow_html=True)
                     
                     p_data = st.session_state.inv_data.get(p.id, {})
                     
                     if p.category == "шт":
-                        val_input = st.text_input(
-                            "Количество (формула, например: 10+5)", 
-                            value=str(p_data.get("val_str", "")), 
-                            key=f"val_str_{p.id}"
-                        )
+                        with col_tare:
+                            st.empty() # Пусто для выравнивания
+                        with col_weight:
+                            val_input = st.text_input(
+                                "Количество", 
+                                value=str(p_data.get("val_str", "")), 
+                                key=f"val_str_{p.id}",
+                                label_visibility="collapsed",
+                                placeholder="Кол-во / формула"
+                            )
                         val = evaluate_expression(val_input)
+                        with col_res:
+                            st.markdown(f"<div style='text-align: right; font-weight: bold; color: #4CAF50;'>{val} шт</div>", unsafe_allow_html=True)
                         
                         if val_input != p_data.get("val_str"):
                             st.session_state.inv_data[p.id] = {"val_str": val_input, "val": val}
@@ -235,22 +210,25 @@ if page == "📝 Переучет продукции":
                             st.rerun()
                     
                     elif p.category in ["кг", "л"]:
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
+                        with col_tare:
                             tare_input = st.text_input(
-                                "Кол-во тары", 
+                                "Тара", 
                                 value=str(p_data.get("tare_str", "")), 
-                                key=f"tare_str_{p.id}"
+                                key=f"tare_str_{p.id}",
+                                label_visibility="collapsed",
+                                placeholder="Тара"
                             )
                             tare_count = evaluate_expression(tare_input)
-                        with col2:
+                        with col_weight:
                             weight_input = st.text_input(
-                                "Общий вес (кг)", 
+                                "Вес", 
                                 value=str(p_data.get("weight_str", "")), 
-                                key=f"weight_str_{p.id}"
+                                key=f"weight_str_{p.id}",
+                                label_visibility="collapsed",
+                                placeholder="Общий вес (кг)"
                             )
                             total_weight = evaluate_expression(weight_input)
-                        with col3:
+                        with col_res:
                             total_tare_weight = tare_count * p.tare_weight
                             net_result = 0.0
                             if p.category == "л":
@@ -260,7 +238,7 @@ if page == "📝 Переучет продукции":
                                 net_weight = total_weight - total_tare_weight if total_weight > total_tare_weight else total_weight
                                 net_result = net_weight if net_weight > 0 else 0.0
                             
-                            st.metric(label="Результат", value=f"{net_result:.3f} {p.category}")
+                            st.markdown(f"<div style='text-align: right; font-weight: bold; font-size: 15px; color: #4CAF50;'>{net_result:.3f} {p.category}</div>", unsafe_allow_html=True)
                         
                         if tare_input != p_data.get("tare_str") or weight_input != p_data.get("weight_str"):
                             st.session_state.inv_data[p.id] = {
@@ -273,6 +251,7 @@ if page == "📝 Переучет продукции":
                                 st.session_state.edit_mode.remove(p.id)
                             st.rerun()
 
+            # --- ШЛАГБАУМ ---
             if completed_products:
                 st.markdown(
                     """
@@ -338,7 +317,6 @@ if page == "📝 Переучет продукции":
                 session.close()
                 st.error(f"Ошибка при сохранении: {e}")
 
-
 # --- СТРАНИЦА 2: ИСТОРИЯ ПО ДАТАМ И ЭКСПОРТ В EXCEL ---
 elif page == "📊 История и Экспорт":
     st.title("📊 История переучетов по датам")
@@ -402,14 +380,12 @@ elif page == "📊 История и Экспорт":
         st.info("История переучетов пока пуста.")
     session.close()
 
-
 # --- СТРАНИЦА 3: СПРАВОЧНИК ---
 elif page == "📚 Справочник":
     st.title("📚 Справочник продукции")
     
     session = Session()
 
-    # --- РАСЧЕТ ПЛОТНОСТИ ВНУТРИ СПРАВОЧНИКА ---
     with st.expander("🧪 Автоматический расчет плотности напитка", expanded=False):
         st.write("Введите данные бутылки в килограммах. Система рассчитает плотность и автоматически добавит или обновит позицию в справочнике.")
         with st.form("density_calc_form"):
@@ -471,7 +447,6 @@ elif page == "📚 Справочник":
 
     st.divider()
 
-    # --- 1. МАССОВАЯ ЗАГРУЗКА ИЗ ФАЙЛА ---
     st.header("📥 Загрузка справочника из таблицы")
     st.write("Загрузите Excel-файл (`.xlsx`) или CSV со списком продукции. Убедитесь, что у файла есть шапка с заголовками: **Название**, **Категория** (вес тары указывается в кг).")
     
@@ -537,7 +512,6 @@ elif page == "📚 Справочник":
 
     st.divider()
 
-    # --- 2. ИНТЕРАКТИВНЫЙ РЕДАКТОР ТАБЛИЦЫ С МГНОВЕННЫМ ПОИСКОМ ---
     st.header("✏️ Редактирование справочника на сайте")
     st.write("Используйте мгновенный поиск для фильтрации позиций перед редактированием.")
     
@@ -625,7 +599,6 @@ elif page == "📚 Справочник":
             st.error(f"Ошибка при сохранении: {e}")
 
     session.close()
-
 
 # --- СТРАНИЦА 4: ЛИЧНЫЙ КАБИНЕТ ---
 elif page == "👤 Личный кабинет":
