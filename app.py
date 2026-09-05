@@ -110,23 +110,32 @@ page = st.sidebar.radio(
     key="nav_radio"
 )
 
-# Проверяем, изменилась ли категория меню для автоматического закрытия сайдбара
+# Проверяем, изменилась ли категория меню
 if page != st.session_state.current_page:
     st.session_state.current_page = page
+    # Улучшенный скрипт точечно находит кнопку сворачивания сайдбара по системному атрибуту
     st.markdown("""
         <script>
             setTimeout(function() {
                 const doc = window.parent.document;
-                const buttons = doc.querySelectorAll('button');
-                for (let btn of buttons) {
-                    const label = (btn.getAttribute('aria-label') || '').toLowerCase();
-                    const testid = (btn.getAttribute('data-testid') || '').toLowerCase();
-                    if (label.includes('collapse') || label.includes('свернуть') || testid.includes('collapse')) {
-                        btn.click();
-                        break;
+                // Ищем официальную кнопку сворачивания сайдбара по data-testid
+                const collapseBtn = doc.querySelector('[data-testid="stSidebarCollapseButton"] button') ||
+                                    doc.querySelector('[data-testid="stSidebarCollapseButton"]');
+                
+                if (collapseBtn) {
+                    collapseBtn.click();
+                } else {
+                    // Защитный запасной вариант по поиску через aria-label
+                    const buttons = doc.querySelectorAll('button');
+                    for (let btn of buttons) {
+                        const label = (btn.getAttribute('aria-label') || '').toLowerCase();
+                        if (label.includes('collapse') || label.includes('свернуть') || label.includes('close')) {
+                            btn.click();
+                            break;
+                        }
                     }
                 }
-            }, 150);
+            }, 200);
         </script>
     """, unsafe_allow_html=True)
 
