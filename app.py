@@ -186,7 +186,7 @@ if page == "📝 Переучет продукции":
                                 value=str(p_data.get("val_str", "")), 
                                 key=f"val_str_{p.id}",
                                 label_visibility="collapsed",
-                                placeholder="Кол-во / формула"
+                                placeholder="Кол-во"
                             )
                         val = evaluate_expression(val_input)
                         with col_res:
