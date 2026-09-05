@@ -34,7 +34,7 @@ def evaluate_expression(expr_str):
 
 Base.metadata.create_all(bind=engine)
 
-st.set_page_config(page_title="Инвентаризация бара", page_icon="🍹", layout="wide")
+st.set_page_config(page_title="Инвентаризация бара / Облік бару", page_icon="🍹", layout="wide")
 
 session = Session()
 init_default_user(session)
@@ -44,17 +44,24 @@ if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 if "username" not in st.session_state:
     st.session_state.username = ""
+if "lang" not in st.session_state:
+    st.session_state.lang = "ru"
+
+# --- ВЫБОР ЯЗЫКА В БОКОВОМ МЕНЮ ---
+selected_lang_label = st.sidebar.selectbox("🌍 Язык / Мова", ["Русский", "Українська"], index=0 if st.session_state.lang == "ru" else 1)
+st.session_state.lang = "ru" if selected_lang_label == "Русский" else "uk"
+t = TEXTS[st.session_state.lang]
 
 if not st.session_state.authenticated:
-    st.title("🔒 Доступ к системе инвентаризации")
+    st.title(t["login_title"])
     
-    auth_tab1, auth_tab2 = st.tabs(["🔑 Вход (Log in)", "📝 Регистрация (Sign up)"])
+    auth_tab1, auth_tab2 = st.tabs([t["tab_login"], t["tab_signup"]])
     
     with auth_tab1:
         with st.form("login_form"):
-            username_input = st.text_input("Логин", key="login_user")
+            username_input = st.text_input("Логин / Логін", key="login_user")
             password_input = st.text_input("Пароль", type="password", key="login_pass")
-            submit_login = st.form_submit_button("Войти")
+            submit_login = st.form_submit_button(t["login_btn"])
             
             if submit_login:
                 session = Session()
@@ -64,70 +71,69 @@ if not st.session_state.authenticated:
                 if user:
                     st.session_state.authenticated = True
                     st.session_state.username = user.username
-                    st.success("Успешный вход!")
+                    st.success(t["success_login"])
                     st.rerun()
                 else:
-                    st.error("Неверный логин или пароль.")
+                    st.error(t["error_login"])
                     
     with auth_tab2:
         with st.form("signup_form"):
-            new_user_input = st.text_input("Придумайте логин", key="signup_user")
-            new_pass_input = st.text_input("Придумайте пароль", type="password", key="signup_pass")
-            confirm_pass_input = st.text_input("Подтвердите пароль", type="password", key="signup_confirm")
-            submit_signup = st.form_submit_button("Зарегистрироваться")
+            new_user_input = st.text_input("Логин / Логін", key="signup_user")
+            new_pass_input = st.text_input("Пароль", type="password", key="signup_pass")
+            confirm_pass_input = st.text_input("Подтвердите пароль / Підтвердьте пароль", type="password", key="signup_confirm")
+            submit_signup = st.form_submit_button(t["signup_btn"])
             
             if submit_signup:
                 if not new_user_input.strip() or not new_pass_input.strip():
-                    st.warning("Логин и пароль не могут быть пустыми.")
+                    st.warning(t["empty_creds"])
                 elif new_pass_input != confirm_pass_input:
-                    st.warning("Пароли не совпадают.")
+                    st.warning(t["pass_mismatch"])
                 else:
                     session = Session()
                     existing_user = session.query(User).filter_by(username=new_user_input.strip()).first()
                     if existing_user:
-                        st.warning("Пользователь с таким логином уже существует.")
+                        st.warning(t["user_exists"])
                     else:
                         new_user = User(username=new_user_input.strip(), password=new_pass_input)
                         session.add(new_user)
                         session.commit()
                         st.session_state.authenticated = True
                         st.session_state.username = new_user.username
-                        st.success("Регистрация успешна! Вход выполнен.")
+                        st.success(t["signup_success"])
                         st.rerun()
                     session.close()
     st.stop()
 
-st.sidebar.title("🍹 Меню бармена")
-st.sidebar.caption(f"👤 Вы вошли как: **{st.session_state.username}**")
+st.sidebar.title(t["menu_title"])
+st.sidebar.caption(f"{t['logged_in']}: **{st.session_state.username}**")
 
 if "current_page" not in st.session_state:
-    st.session_state.current_page = "📝 Переучет продукции"
+    st.session_state.current_page = t["p1"]
 
 page = st.sidebar.radio(
-    "Навигация", 
-    ["📝 Переучет продукции", "📊 История и Экспорт", "📚 Справочник", "👤 Личный кабинет"],
+    t["nav"], 
+    [t["p1"], t["p2"], t["p3"], t["p4"]],
     key="nav_radio"
 )
 
 if page != st.session_state.current_page:
     st.session_state.current_page = page
 
-if st.sidebar.button("🚪 Выйти из системы", key="logout_button_sidebar"):
+if st.sidebar.button(t["logout"], key="logout_button_sidebar"):
     st.session_state.authenticated = False
     st.session_state.username = ""
     st.rerun()
 
 # --- СТРАНИЦА 1: ПЕРЕУЧЕТ ПРОДУКЦИИ ---
-if page == "📝 Переучет продукции":
-    st.title("📝 Массовый переучет продукции")
-    st.write("Посчитанные товары уходят под шлагбаум. Компактные карточки позволяют быстро вводить данные.")
+if page == t["p1"]:
+    st.title(t["p1"])
     
     session = Session()
     all_products = session.query(Product).filter_by(is_active=True).order_by(Product.name.asc()).all()
     session.close()
     
     if not all_products:
-        st.warning("Сначала добавьте активные товары во вкладке «Справочник»!")
+        st.warning(t["add_products_warn"])
     else:
         if "inv_data" not in st.session_state:
             st.session_state.inv_data = {}
@@ -145,7 +151,7 @@ if page == "📝 Переучет продукции":
                 w = d.get("weight")
                 return w is not None and w > 0
 
-        search_query = st.text_input("🔍 Мгновенный поиск по названию", value="", placeholder="Начните вводить название...").strip().lower()
+        search_query = st.text_input("🔍 Поиск / Пошук", value="", placeholder="...").strip().lower()
         
         if search_query:
             products = [p for p in all_products if search_query in p.name.lower()]
@@ -157,17 +163,16 @@ if page == "📝 Переучет продукции":
         completed_count = len(completed_all)
         progress_val = completed_count / total_count if total_count > 0 else 0.0
 
-        st.subheader(f"Прогресс смены: {completed_count} из {total_count} позиций")
+        st.subheader(f"{t['progress_text']}: {completed_count} / {total_count} {t['pos_word']}")
         st.progress(progress_val)
         st.divider()
 
         if not products:
-            st.info("По вашему запросу ничего не найдено.")
+            st.info("Ничего не найдено / Нічого не знайдено.")
         else:
             uncompleted_products = [p for p in products if not is_completed(p)]
             completed_products = [p for p in products if is_completed(p)]
 
-            # --- КОМПАКТНЫЕ СТРОЧНЫЕ КАРТОЧКИ ---
             for p in uncompleted_products:
                 with st.container(border=True):
                     col_info, col_tare, col_weight, col_res = st.columns([2.2, 1, 1.2, 1.2], vertical_alignment="center")
@@ -183,7 +188,7 @@ if page == "📝 Переучет продукции":
                             st.empty()
                         with col_weight:
                             val_input = st.text_input(
-                                "Количество", 
+                                "Кол-во", 
                                 value=str(p_data.get("val_str", "")), 
                                 key=f"val_str_{p.id}",
                                 label_visibility="collapsed",
@@ -215,7 +220,7 @@ if page == "📝 Переучет продукции":
                                 value=str(p_data.get("weight_str", "")), 
                                 key=f"weight_str_{p.id}",
                                 label_visibility="collapsed",
-                                placeholder="Общий вес (кг)"
+                                placeholder="Вес (кг)"
                             )
                             total_weight = evaluate_expression(weight_input)
                         with col_res:
@@ -246,13 +251,12 @@ if page == "📝 Переучет продукции":
                                 st.session_state.edit_mode.remove(p.id)
                             st.rerun()
 
-            # --- ШЛАГБАУМ ---
             if completed_products:
                 st.markdown(
-                    """
+                    f"""
                     <div style="display: flex; align-items: center; text-align: center; margin: 30px 0 20px 0;">
                         <hr style="flex: 1; border: none; border-top: 2px dashed #f49e92;">
-                        <span style="padding: 0 15px; color: #f49e92; font-weight: bold; font-size: 15px;">🛑 Шлагбаум: Посчитанная продукция (нажмите для редактирования)</span>
+                        <span style="padding: 0 15px; color: #f49e92; font-weight: bold; font-size: 15px;">{t['barrier_title']}</span>
                         <hr style="flex: 1; border: none; border-top: 2px dashed #f49e92;">
                     </div>
                     """, 
@@ -281,12 +285,12 @@ if page == "📝 Переучет продукции":
                             net = (w_val - total_tare_weight) if total_tare_weight > 0 else w_val
                         res_str = f"{net:.3f} {p.category}"
 
-                    if st.button(f"✅ {p.name} — Результат: {res_str} (кликните для изменения)", key=f"edit_btn_{p.id}"):
+                    if st.button(f"✅ {p.name} — {res_str}", key=f"edit_btn_{p.id}"):
                         st.session_state.edit_mode.add(p.id)
                         st.rerun()
 
         st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("💾 Сохранить результаты переучета смены", type="primary"):
+        if st.button(t["save_results"], type="primary"):
             try:
                 current_time = datetime.now()
                 saved_count = 0
@@ -308,21 +312,21 @@ if page == "📝 Переучет продукции":
                 session.commit()
                 session.close()
                 if saved_count > 0:
-                    st.success(f"Успешно сохранено позиций: {saved_count}!")
+                    st.success(f"{t['save_success']}: {saved_count}!")
                     st.session_state.inv_data = {}
                     st.session_state.edit_mode = set()
                     st.rerun()
                 else:
-                    st.warning("Нет заполненных данных для сохранения.")
+                    st.warning(t["save_empty"])
             except Exception as e:
                 session.rollback()
                 session.close()
-                st.error(f"Ошибка при сохранении: {e}")
+                st.error(f"Error: {e}")
 
 # --- СТРАНИЦА 2: ИСТОРИЯ ПО ДАТАМ И ЭКСПОРТ В EXCEL ---
-elif page == "📊 История и Экспорт":
-    st.title("📊 История переучетов по датам")
-    st.write("Нажмите на дату, чтобы раскрыть детали переучета смены.")
+elif page == t["p2"]:
+    st.title(t["history_title"])
+    st.write(t["history_sub"])
     
     session = Session()
     records = session.query(InventoryRecord).order_by(InventoryRecord.checked_at.desc()).all()
@@ -336,17 +340,17 @@ elif page == "📊 История и Экспорт":
             dates_dict[date_str].append(r)
             
         for date_str, session_records in dates_dict.items():
-            with st.expander(f"📅 Переучет смены от {date_str} (поз: {len(session_records)})"):
+            with st.expander(f"📅 {date_str} (poz: {len(session_records)})"):
                 history_data = []
                 for r in session_records:
                     prod = session.query(Product).filter_by(id=r.product_id).first()
-                    p_name = prod.name if prod else "Удаленный товар"
+                    p_name = prod.name if prod else "Deleted"
                     p_cat = prod.category if prod else ""
                     
                     history_data.append({
                         "Товар": p_name,
                         "Тип": p_cat,
-                        "Введенное значение": r.current_weight
+                        "Значение": r.current_weight
                     })
                 
                 df_history = pd.DataFrame(history_data)
@@ -356,51 +360,51 @@ elif page == "📊 История и Экспорт":
                 with col_dl:
                     output = io.BytesIO()
                     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                        df_history.to_excel(writer, index=False, sheet_name='Переучет смены')
+                        df_history.to_excel(writer, index=False, sheet_name='Report')
                     excel_data = output.getvalue()
                     
                     st.download_button(
-                        label=f"📥 Скачать отчет за {date_str} (.xlsx)",
+                        label=f"📥 {t['download_report']} {date_str} (.xlsx)",
                         data=excel_data,
-                        file_name=f"inventory_report_{date_str.replace(':', '-')}.xlsx",
+                        file_name=f"report_{date_str.replace(':', '-')}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         key=f"dl_{date_str}"
                     )
                 with col_del:
-                    if st.button("🗑️ Удалить", key=f"del_rec_{date_str}", type="secondary"):
+                    if st.button(t["delete_btn"], key=f"del_rec_{date_str}", type="secondary"):
                         try:
                             record_ids = [r.id for r in session_records]
                             session.query(InventoryRecord).filter(InventoryRecord.id.in_(record_ids)).delete(synchronize_session=False)
                             session.commit()
-                            st.success(f"Переучет за {date_str} успешно удален!")
+                            st.success(t["delete_success"])
                             session.close()
                             st.rerun()
                         except Exception as e:
                             session.rollback()
-                            st.error(f"Ошибка удаления: {e}")
+                            st.error(f"Error: {e}")
     else:
-        st.info("История переучетов пока пуста.")
+        st.info(t["history_empty"])
     session.close()
 
 # --- СТРАНИЦА 3: СПРАВОЧНИК ---
-elif page == "📚 Справочник":
-    st.title("📚 Справочник продукции")
+elif page == t["p3"]:
+    st.title(t["catalog_title"])
     
     session = Session()
 
-    with st.expander("🧪 Автоматический расчет плотности напитка", expanded=False):
-        st.write("Введите данные бутылки в килограммах. Система рассчитает плотность и автоматически добавит или обновит позицию в справочнике.")
+    with st.expander(t["density_expander"], expanded=False):
+        st.write(t["density_desc"])
         with st.form("density_calc_form"):
-            drink_name = st.text_input("Название напитка (например, Виски Jameson 0.7)")
-            total_weight = st.number_input("Общий вес (бутылка вместе с напитком, кг)", min_value=0.0, step=0.01)
-            volume_ml = st.number_input("Объем бутылки (мл)", min_value=0.0, step=10.0, value=750.0)
-            submit_calc = st.form_submit_button("Рассчитать и сохранить плотность")
+            drink_name = st.text_input(t["drink_name_label"])
+            total_weight = st.number_input(t["total_weight_label"], min_value=0.0, step=0.01)
+            volume_ml = st.number_input(t["volume_label"], min_value=0.0, step=10.0, value=750.0)
+            submit_calc = st.form_submit_button(t["calc_density_btn"])
             
             if submit_calc:
                 if not drink_name.strip():
-                    st.warning("Введите название напитка.")
+                    st.warning("Введите название.")
                 elif total_weight <= 0 or volume_ml <= 0:
-                    st.warning("Введите корректные значения общего веса и объема.")
+                    st.warning("Введите корректные значения.")
                 else:
                     st.session_state["temp_drink_name"] = drink_name.strip()
                     st.session_state["temp_total_weight"] = total_weight
@@ -409,10 +413,10 @@ elif page == "📚 Справочник":
 
         if st.session_state.get("density_manual_needed", False):
             st.divider()
-            st.subheader("⚖️ Укажите вес пустой тары")
+            st.subheader(t["manual_tare_title"])
             with st.form("manual_bottle_form"):
-                manual_tare = st.number_input("Вес пустой бутылки (кг)", min_value=0.0, step=0.001)
-                submit_manual = st.form_submit_button("Подтвердить и внести в Справочник")
+                manual_tare = st.number_input(t["manual_tare_label"], min_value=0.0, step=0.001)
+                submit_manual = st.form_submit_button(t["confirm_tare_btn"])
                 
                 if submit_manual:
                     d_name = st.session_state["temp_drink_name"]
@@ -439,20 +443,20 @@ elif page == "📚 Справочник":
                             )
                             session.add(new_p)
                         session.commit()
-                        st.success(f"✅ Товар '{d_name}' успешно внесен в Справочник! Плотность: {density:.3f} кг/л, Вес тары: {manual_tare} кг.")
+                        st.success(f"✅ {d_name} saved! Density: {density:.3f}, Tare: {manual_tare}")
                         st.session_state["density_manual_needed"] = False
                         session.close()
                         st.rerun()
                     except Exception as e:
                         session.rollback()
-                        st.error(f"Ошибка сохранения: {e}")
+                        st.error(f"Error: {e}")
 
     st.divider()
 
-    st.header("📥 Загрузка справочника из таблицы")
-    st.write("Загрузите Excel-файл (`.xlsx`) или CSV со списком продукции. Убедитесь, что у файла есть шапка с заголовками: **Название**, **Категория** (вес тары указывается в кг).")
+    st.header(t["import_header"])
+    st.write(t["import_desc"])
     
-    uploaded_file = st.file_uploader("Выберите файл с товарами", type=["xlsx", "csv"])
+    uploaded_file = st.file_uploader(t["file_picker"], type=["xlsx", "csv"])
     
     if uploaded_file is not None:
         try:
@@ -461,11 +465,9 @@ elif page == "📚 Справочник":
             else:
                 df_upload = pd.read_excel(uploaded_file)
             
-            st.write("Обнаруженные колонки в файле:", list(df_upload.columns))
-            st.write("Полный предпросмотр данных:")
             st.dataframe(df_upload, use_container_width=True)
             
-            if st.button("🚀 Импортировать данные в базу", type="primary"):
+            if st.button(t["import_btn"], type="primary"):
                 added_count = 0
                 updated_count = 0
                 skipped_count = 0
@@ -501,23 +503,18 @@ elif page == "📚 Справочник":
                         added_count += 1
                 
                 session.commit()
-                
-                if added_count > 0 or updated_count > 0:
-                    st.success(f"Импорт завершен! Добавлено новых: {added_count}, обновлено: {updated_count}. (Пропущено пустых строк: {skipped_count})")
-                    session.close()
-                    st.rerun()
-                else:
-                    st.warning(f"Ни одна строка не была импортирована. Проверьте заголовки колонок («Название», «Категория»). Пропущено строк: {skipped_count}")
-                
+                st.success(f"Imported: {added_count}, Updated: {updated_count}")
+                session.close()
+                st.rerun()
         except Exception as e:
-            st.error(f"Ошибка при чтении файла: {e}")
+            st.error(f"Error: {e}")
 
     st.divider()
 
-    st.header("✏️ Редактирование справочника на сайте")
-    st.write("Используйте мгновенный поиск для фильтрации позиций перед редактированием.")
+    st.header(t["editor_header"])
+    st.write(t["editor_desc"])
     
-    catalog_search = st.text_input("🔍 Мгновенный поиск по справочнику", value="", placeholder="Введите название для фильтрации...").strip().lower()
+    catalog_search = st.text_input(t["search_catalog"], value="", placeholder="...").strip().lower()
     
     all_products_query = session.query(Product).order_by(Product.name.asc()).all()
     
@@ -546,7 +543,7 @@ elif page == "📚 Справочник":
         }
     )
     
-    if st.button("💾 Сохранить изменения в базе данных", type="primary"):
+    if st.button(t["save_catalog_btn"], type="primary"):
         try:
             existing_ids = {p.id for p in all_products_query}
             current_ui_ids = set()
@@ -591,70 +588,34 @@ elif page == "📚 Справочник":
                     p.is_active = False
                     
             session.commit()
-            st.success("Все изменения успешно сохранены в базе данных!")
+            st.success("Saved successfully!")
             session.close()
             st.rerun()
             
         except Exception as e:
             session.rollback()
             session.close()
-            st.error(f"Ошибка при сохранении: {e}")
+            st.error(f"Error: {e}")
 
     session.close()
 
 # --- СТРАНИЦА 4: ЛИЧНЫЙ КАБИНЕТ ---
-elif page == "👤 Личный кабинет":
-    st.title("👤 Личный кабинет и Руководство")
-    st.write("Управление учетными записями сотрудников, безопасность аккаунта и подробная инструкция по работе с системой.")
+elif page == t["p4"]:
+    st.title(t["cabinet_title"])
+    st.write(t["cabinet_desc"])
     
-    with st.expander("📖 Подробный гайд по использованию системы (Инструкция)", expanded=False):
-        st.markdown("""
-        ### 🍹 Руководство по работе с системой инвентаризации
-        
-        ---
-        
-        #### 1. 📝 Переучет продукции
-        * **Как считать товары:** На странице переучета вы видите список всех активных позиций. Позиции делятся на штучные (`шт`), килограммы (`кг`) и литры (`л`).
-        * **Мгновенный поиск:** Используйте строку поиска в верхней части страницы, чтобы мгновенно находить нужные напитки и продукты.
-        * **Калькулятор формул:** В поля ввода можно вводить не просто числа, а математические выражения (например, `10+5` или `500-50`). Система вычислит результат автоматически.
-        * **Для напитков с тарой (`кг` / `л`):** 
-          * В поле **«Тара»** введите количество открытых или полных емкостей.
-          * В поле **«Вес»** укажите суммарный вес в килограммах (бутылка вместе с остатком жидкости).
-          * **Автоматический расчет 0.75:** Если в названии товара содержится `0.75` или `0,75`, система автоматически рассчитывает общий объем по формуле: `0.75 * Тара + Остаток` (в литрах). Для остальных позиций расчет идет через плотность.
-        * **Шлагбаум:** Посчитанный товар автоматически уходит под «шлагбаум» вниз страницы. Если нужно исправить значение, просто кликните на плашку товара, и он вернется наверх.
-        * **Сохранение смены:** После проверки всех позиций нажмите кнопку **«💾 Сохранить результаты переучета смены»**.
-        
-        ---
-        
-        #### 2. 📊 История и Экспорт
-        * Раздел хранит все сохраненные смены, сгруппированные по дате и времени.
-        * Кликните на нужную дату, чтобы раскрыть таблицу с результатами проверки.
-        * Нажмите кнопку **«Скачать отчет»**, чтобы получить файл в формате `.xlsx` для бухгалтерии.
-        * При необходимости устаревшие записи можно **удалить** с помощью кнопки удаления.
-        
-        ---
-        
-        #### 3. 📚 Справочник
-        * **Массовая загрузка:** Загружайте файлы `.xlsx` или `.csv` со списком продукции. Обязательные колонки в файле: `Название`, `Категория`.
-        * **Редактор базы данных:** Меняйте данные прямо на сайте (названия, категории, активность товаров). Используйте мгновенный поиск по справочнику.
-        * **Расчет плотности:** В раскрывающемся блоке можно рассчитать плотность нового напитка. Введите название, общий вес бутылки и объем в мл. Если точный вес пустой тары неизвестен, система предложит взвесить её вручную, после чего параметры автоматически сохранятся в справочник.
-        
-        ---
-        
-        #### 4. 👤 Управление аккаунтом
-        * **Смена пароля:** Заполните форму внизу страницы, чтобы обновить пароль текущего пользователя.
-        * **Добавление сотрудников:** Администратор может создавать учетные записи для новых барменов, указывая их логин и пароль.
-        """)
+    with st.expander("📖 Гайд / Посібник", expanded=False):
+        st.markdown(t["guide_text"])
     
     st.divider()
     
     session = Session()
     
     with st.form("change_password_form"):
-        st.subheader("🔑 Изменить пароль текущего аккаунта")
-        new_password = st.text_input("Новый пароль", type="password")
-        confirm_password = st.text_input("Подтвердите новый пароль", type="password")
-        submit_pass = st.form_submit_button("Обновить пароль")
+        st.subheader(t["change_pass_title"])
+        new_password = st.text_input(t["new_pass_label"], type="password")
+        confirm_password = st.text_input(t["confirm_pass_label"], type="password")
+        submit_pass = st.form_submit_button(t["update_pass_btn"])
         
         if submit_pass:
             if new_password and new_password == confirm_password:
@@ -662,34 +623,34 @@ elif page == "👤 Личный кабинет":
                 if current_user:
                     current_user.password = new_password
                     session.commit()
-                    st.success("Пароль успешно изменен!")
+                    st.success(t["pass_success"])
                 else:
-                    st.warning("Пользователь не найден.")
+                    st.warning("User not found.")
             else:
-                st.warning("Пароли не совпадают или пусты.")
+                st.warning("Passwords do not match or empty.")
 
     st.divider()
 
     with st.form("add_user_form"):
-        st.subheader("👥 Добавить нового сотрудника")
-        new_username = st.text_input("Логин нового пользователя")
-        new_user_password = st.text_input("Пароль нового пользователя", type="password")
-        submit_user = st.form_submit_button("Создать пользователя")
+        st.subheader(t["add_emp_title"])
+        new_username = st.text_input(t["emp_login"])
+        new_user_password = st.text_input(t["emp_pass"], type="password")
+        submit_user = st.form_submit_button(t["create_emp_btn"])
         
         if submit_user:
             if new_username.strip() and new_user_password.strip():
                 try:
                     user_exists = session.query(User).filter_by(username=new_username.strip()).first()
                     if user_exists:
-                        st.warning("Пользователь с таким логином уже существует.")
+                        st.warning("User already exists.")
                     else:
                         add_user = User(username=new_username.strip(), password=new_user_password.strip())
                         session.add(add_user)
                         session.commit()
-                        st.success(f"Пользователь '{new_username}' успешно создан!")
+                        st.success(t["emp_success"])
                 except Exception as e:
-                    st.error(f"Ошибка создания пользователя: {e}")
+                    st.error(f"Error: {e}")
             else:
-                st.warning("Заполните логин и пароль.")
+                st.warning("Fill all fields.")
 
     session.close()
