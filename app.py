@@ -111,31 +111,40 @@ page = st.sidebar.radio(
 )
 
 # Проверяем, изменилась ли категория меню
+# Проверяем, изменилась ли категория меню
 if page != st.session_state.current_page:
     st.session_state.current_page = page
-    # Улучшенный скрипт точечно находит кнопку сворачивания сайдбара по системному атрибуту
+    # Надежный скрипт с несколькими попытками перехвата кнопки сворачивания сайдбара
     st.markdown("""
         <script>
-            setTimeout(function() {
+            function tryCollapse() {
                 const doc = window.parent.document;
-                // Ищем официальную кнопку сворачивания сайдбара по data-testid
+                // Ищем по основному testid или иконке сворачивания
                 const collapseBtn = doc.querySelector('[data-testid="stSidebarCollapseButton"] button') ||
-                                    doc.querySelector('[data-testid="stSidebarCollapseButton"]');
+                                    doc.querySelector('[data-testid="stSidebarCollapseButton"]') ||
+                                    doc.querySelector('button[kind="header"]');
                 
                 if (collapseBtn) {
                     collapseBtn.click();
-                } else {
-                    // Защитный запасной вариант по поиску через aria-label
-                    const buttons = doc.querySelectorAll('button');
-                    for (let btn of buttons) {
-                        const label = (btn.getAttribute('aria-label') || '').toLowerCase();
-                        if (label.includes('collapse') || label.includes('свернуть') || label.includes('close')) {
-                            btn.click();
-                            break;
-                        }
+                    return true;
+                }
+                
+                // Запасной поиск по всем кнопкам с текстом/меткой сжатия
+                const buttons = doc.querySelectorAll('button');
+                for (let btn of buttons) {
+                    const label = (btn.getAttribute('aria-label') || '').toLowerCase();
+                    if (label.includes('collapse') || label.includes('свернуть') || label.includes('close')) {
+                        btn.click();
+                        return true;
                     }
                 }
-            }, 200);
+                return false;
+            }
+
+            // Пробуем закрыть панель в несколько заходов, чтобы обогнать отрисовку Streamlit
+            setTimeout(tryCollapse, 100);
+            setTimeout(tryCollapse, 300);
+            setTimeout(tryCollapse, 600);
         </script>
     """, unsafe_allow_html=True)
 
