@@ -531,100 +531,116 @@ elif page == t["p3"]:
 
     st.divider()
 
+    # --- РЕДАКТОР СПРАВОЧНИКА НА ОСНОВЕ КАРТОЧЕК ---
     st.header(t["editor_header"])
     st.write(t["editor_desc"])
-    
+
+    # Добавление нового товара вручную через мини-форму
+    with st.expander(t["add_new_product_expander"], expanded=False):
+        with st.form("add_single_product_form"):
+            new_p_name = st.text_input(t["new_prod_name"])
+            new_p_cat = st.selectbox(t["new_prod_cat"], options=["л", "кг", "шт"])
+            col_nc1, col_nc2 = st.columns(2)
+            with col_nc1:
+                new_p_density = st.number_input(t["new_prod_density"], min_value=0.01, value=1.0, step=0.01)
+            with col_nc2:
+                new_p_tare = st.number_input(t["new_prod_tare"], min_value=0.0, value=0.0, step=0.001)
+            
+            submit_new_p = st.form_submit_button(t["add_prod_btn"], type="primary")
+            if submit_new_p:
+                if not new_p_name.strip():
+                    st.warning("Введите название товара.")
+                else:
+                    try:
+                        exist_p = session.query(Product).filter_by(name=new_p_name.strip()).first()
+                        if exist_p:
+                            exist_p.is_active = True
+                            exist_p.category = new_p_cat
+                            exist_p.density = new_p_density
+                            exist_p.tare_weight = new_p_tare
+                        else:
+                            prod_item = Product(
+                                name=new_p_name.strip(),
+                                category=new_p_cat,
+                                density=new_p_density,
+                                tare_weight=new_p_tare,
+                                is_active=True
+                            )
+                            session.add(prod_item)
+                        session.commit()
+                        st.success(f"✅ Товар '{new_p_name}' успешно добавлен!")
+                        session.close()
+                        st.rerun()
+                    except Exception as e:
+                        session.rollback()
+                        st.error(f"Ошибка: {e}")
+
     catalog_search = st.text_input(t["search_catalog"], value="", placeholder="...").strip().lower()
     
-    # Сортируем: сначала активные (is_active DESC), затем по имени (name ASC)
+    # Сортируем: сначала активные, затем неактивные (по алфавиту)
     all_products_query = session.query(Product).order_by(Product.is_active.desc(), Product.name.asc()).all()
     
     if catalog_search:
         filtered_products = [p for p in all_products_query if catalog_search in p.name.lower()]
     else:
         filtered_products = all_products_query
-    
-    df_products = pd.DataFrame([{
-        "id": p.id,
-        "Название": p.name,
-        "Категория": p.category,
-        "Плотность": p.density,
-        "Вес тары (кг)": p.tare_weight,
-        "Активен": p.is_active
-    } for p in filtered_products]) if filtered_products else pd.DataFrame(columns=["id", "Название", "Категория", "Плотность", "Вес тары (кг)", "Активен"])
-    
-    # Функция для визуального оформления: неактивные строки делаем бледными и прозрачными
-    def highlight_inactive(row):
-        if not row["Активен"]:
-            return ['color: #999999; background-color: rgba(200, 200, 200, 0.15);'] * len(row)
-        return [''] * len(row)
 
-    styled_df = df_products.style.apply(highlight_inactive, axis=1)
+    if not filtered_products:
+        st.info("В справочнике пока нет товаров.")
+    else:
+        # Словарь для сбора измененных данных перед сохранением
+        if "catalog_form_data" not in st.session_state:
+            st.session_state.catalog_form_data = {}
 
-    edited_df = st.data_editor(
-        styled_df, 
-        hide_index=True,
-        num_rows="dynamic",
-        column_config={
-            "id": st.column_config.NumberColumn("ID", disabled=True),
-            "Категория": st.column_config.SelectboxColumn("Категория", options=["шт", "л", "кг"], required=True),
-            "Активен": st.column_config.CheckboxColumn("Активен")
-        }
-    )
-    
-    if st.button(t["save_catalog_btn"], type="primary"):
-        try:
-            existing_ids = {p.id for p in all_products_query}
-            current_ui_ids = set()
+        for p in filtered_products:
+            # Если товар неактивен, делаем карточку визуально бледнее
+            card_border_color = "rgba(200, 200, 200, 0.2)" if p.is_active else "rgba(150, 150, 150, 0.08)"
+            opacity_style = "opacity: 1.0;" if p.is_active else "opacity: 0.5;"
             
-            for index, row in edited_df.iterrows():
-                row_id = row.get("id")
-                name = str(row.get("Название", "")).strip()
-                category = str(row.get("Категория", "шт")).strip()
-                is_active_val = bool(row.get("Активен", True))
+            with st.container(border=True):
+                col_name, col_cat, col_density, col_tare, col_active = st.columns([2.5, 1, 1, 1, 0.8], vertical_alignment="center")
                 
-                if not name or name == "nan":
-                    continue
-                
-                density = float(row.get("Плотность", 1.0)) if pd.notna(row.get("Плотность")) else 1.0
-                tare_weight = float(row.get("Вес тары (кг)", 0.0)) if pd.notna(row.get("Вес тары (кг)")) else 0.0
-                
-                if pd.notna(row_id) and int(row_id) in existing_ids:
-                    db_prod = session.query(Product).filter_by(id=int(row_id)).first()
+                with col_name:
+                    new_name = st.text_input(f"Название #{p.id}", value=p.name, key=f"c_name_{p.id}", label_visibility="collapsed")
+                with col_cat:
+                    cat_index = ["л", "кг", "шт"].index(p.category) if p.category in ["л", "кг", "шт"] else 0
+                    new_cat = st.selectbox(f"Категория #{p.id}", options=["л", "кг", "шт"], index=cat_index, key=f"c_cat_{p.id}", label_visibility="collapsed")
+                with col_density:
+                    new_density = st.number_input(f"Плотность #{p.id}", value=float(p.density or 1.0), step=0.01, key=f"c_density_{p.id}", label_visibility="collapsed")
+                with col_tare:
+                    new_tare = st.number_input(f"Тара #{p.id}", value=float(p.tare_weight or 0.0), step=0.001, key=f"c_tare_{p.id}", label_visibility="collapsed")
+                with col_active:
+                    new_active = st.checkbox("Активен", value=bool(p.is_active), key=f"c_active_{p.id}")
+
+                # Сохраняем значения в словарь сессии
+                st.session_state.catalog_form_data[p.id] = {
+                    "name": new_name,
+                    "category": new_cat,
+                    "density": new_density,
+                    "tare_weight": new_tare,
+                    "is_active": new_active
+                }
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button(t["save_catalog_btn"], type="primary", use_container_width=True):
+            try:
+                for p_id, vals in st.session_state.catalog_form_data.items():
+                    db_prod = session.query(Product).filter_by(id=p_id).first()
                     if db_prod:
-                        db_prod.name = name
-                        db_prod.category = category
-                        db_prod.density = density
-                        db_prod.tare_weight = tare_weight
-                        db_prod.is_active = is_active_val
-                        current_ui_ids.add(db_prod.id)
-                else:
-                    new_prod = Product(
-                        name=name,
-                        category=category,
-                        density=density,
-                        tare_weight=tare_weight,
-                        is_active=is_active_val
-                    )
-                    session.add(new_prod)
-                    session.flush()
-                    current_ui_ids.add(new_prod.id)
-            
-            for p in all_products_query:
-                if catalog_search and catalog_search not in p.name.lower():
-                    continue
-                if p.id not in current_ui_ids:
-                    p.is_active = False
-                    
-            session.commit()
-            st.success("Saved successfully!")
-            session.close()
-            st.rerun()
-            
-        except Exception as e:
-            session.rollback()
-            session.close()
-            st.error(f"Error: {e}")
+                        db_prod.name = vals["name"].strip()
+                        db_prod.category = vals["category"]
+                        db_prod.density = vals["density"]
+                        db_prod.tare_weight = vals["tare_weight"]
+                        db_prod.is_active = vals["is_active"]
+                
+                session.commit()
+                st.success("Все изменения успешно сохранены в базе данных!")
+                session.close()
+                st.rerun()
+            except Exception as e:
+                session.rollback()
+                session.close()
+                st.error(f"Ошибка сохранения: {e}")
 
     session.close()
 # --- СТРАНИЦА 4: ЛИЧНЫЙ КАБИНЕТ ---
