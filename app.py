@@ -31,39 +31,10 @@ def evaluate_expression(expr_str):
         except ValueError:
             return 0.0
 
-def search_bottle_weight_online(drink_name):
-    return None
-
-def save_density_to_db(name, density, tare_weight):
-    session = Session()
-    try:
-        existing = session.query(Product).filter_by(name=name).first()
-        if existing:
-            existing.density = density
-            existing.tare_weight = tare_weight
-            existing.is_active = True
-        else:
-            new_p = Product(
-                name=name,
-                category="л",
-                density=density,
-                tare_weight=tare_weight,
-                is_active=True
-            )
-            session.add(new_p)
-        session.commit()
-        st.success(f"✅ Товар '{name}' успешно внесен в Справочник! Плотность: {density:.3f} кг/л, Вес тары: {tare_weight} кг.")
-    except Exception as e:
-        session.rollback()
-        st.error(f"Ошибка сохранения в базу: {e}")
-    finally:
-        session.close()
-
 Base.metadata.create_all(bind=engine)
 
 st.set_page_config(page_title="Инвентаризация бара", page_icon="🍹", layout="wide")
 
-# --- СИСТЕМА АВТОРИЗАЦИИ (ВХОД И РЕГИСТРАЦИЯ) ---
 session = Session()
 init_default_user(session)
 session.close()
@@ -129,7 +100,7 @@ st.sidebar.title("🍹 Меню бармена")
 st.sidebar.caption(f"👤 Вы вошли как: **{st.session_state.username}**")
 page = st.sidebar.radio(
     "Навигация", 
-    ["📝 Переучет продукции", "📊 История и Экспорт", "📚 Справочник и Управление", "🧪 Расчет плотности"]
+    ["📝 Переучет продукции", "📊 История и Экспорт", "📚 Справочник", "👤 Личный кабинет"]
 )
 
 if st.sidebar.button("🚪 Выйти из системы"):
@@ -147,7 +118,7 @@ if page == "📝 Переучет продукции":
     session.close()
     
     if not all_products:
-        st.warning("Сначала добавьте активные товары во вкладке «Справочник и Управление»!")
+        st.warning("Сначала добавьте активные товары во вкладке «Справочник»!")
     else:
         if "inv_data" not in st.session_state:
             st.session_state.inv_data = {}
@@ -165,8 +136,7 @@ if page == "📝 Переучет продукции":
                 w = d.get("weight")
                 return w is not None and w > 0
 
-        # Поле поиска по позициям
-        search_query = st.text_input("🔍 Поиск по позициям", value="", placeholder="Начните вводить название товара...").strip().lower()
+        search_query = st.text_input("🔍 Мгновенный поиск по названию", value="", placeholder="Начните вводить название...").strip().lower()
         
         if search_query:
             products = [p for p in all_products if search_query in p.name.lower()]
@@ -178,7 +148,6 @@ if page == "📝 Переучет продукции":
         completed_count = len(completed_all)
         progress_val = completed_count / total_count if total_count > 0 else 0.0
 
-        # --- ШКАЛА ПРОГРЕССА ---
         st.subheader(f"Прогресс смены: {completed_count} из {total_count} позиций")
         st.progress(progress_val)
         st.divider()
@@ -189,7 +158,6 @@ if page == "📝 Переучет продукции":
             uncompleted_products = [p for p in products if not is_completed(p)]
             completed_products = [p for p in products if is_completed(p)]
 
-            # --- ВВЕРХУ: НЕПОСЧИТАННЫЕ ТОВАРЫ В ВИДЕ КАРТОЧЕК ---
             for p in uncompleted_products:
                 with st.container(border=True):
                     st.markdown(f"#### {p.name} <span style='font-size:14px; color:gray;'>({p.category})</span>", unsafe_allow_html=True)
@@ -198,7 +166,7 @@ if page == "📝 Переучет продукции":
                     
                     if p.category == "шт":
                         val_input = st.text_input(
-                            "Количество (можно формулой, например: 10+5)", 
+                            "Количество (формула, например: 10+5)", 
                             value=str(p_data.get("val_str", "")), 
                             key=f"val_str_{p.id}"
                         )
@@ -221,7 +189,7 @@ if page == "📝 Переучет продукции":
                             tare_count = evaluate_expression(tare_input)
                         with col2:
                             weight_input = st.text_input(
-                                "Общий вес (кг) [калькулятор]", 
+                                "Общий вес (кг)", 
                                 value=str(p_data.get("weight_str", "")), 
                                 key=f"weight_str_{p.id}"
                             )
@@ -249,7 +217,6 @@ if page == "📝 Переучет продукции":
                                 st.session_state.edit_mode.remove(p.id)
                             st.rerun()
 
-            # --- ШЛАГБАУМ ---
             if completed_products:
                 st.markdown(
                     """
@@ -333,44 +300,122 @@ elif page == "📊 История и Экспорт":
             
         selected_session_date = st.selectbox("Выберите дату и время переучета смены", list(dates_dict.keys()))
         
+        col_del1, col_del2 = st.columns([2, 5])
+        with col_del1:
+            if st.button("🗑️ Удалить/Архивировать этот переучет", type="secondary"):
+                try:
+                    target_time = datetime.strptime(selected_session_date, "%Y-%m-%d %H:%M")
+                    # Удаляем записи за эту точную минуту/дату
+                    session.query(InventoryRecord).filter(InventoryRecord.checked_at == target_time).delete()
+                    session.commit()
+                    st.success(f"Переучет за {selected_session_date} успешно удален/архивирован!")
+                    session.close()
+                    st.rerun()
+                except Exception as e:
+                    session.rollback()
+                    st.error(f"Ошибка удаления: {e}")
+        
         if selected_session_date:
-            session_records = dates_dict[selected_session_date]
-            history_data = []
-            for r in session_records:
-                prod = session.query(Product).filter_by(id=r.product_id).first()
-                p_name = prod.name if prod else "Удаленный товар"
-                p_cat = prod.category if prod else ""
+            session_records = dates_dict.get(selected_session_date, [])
+            if session_records:
+                history_data = []
+                for r in session_records:
+                    prod = session.query(Product).filter_by(id=r.product_id).first()
+                    p_name = prod.name if prod else "Удаленный товар"
+                    p_cat = prod.category if prod else ""
+                    
+                    history_data.append({
+                        "Товар": p_name,
+                        "Тип": p_cat,
+                        "Введенное значение": r.current_weight
+                    })
                 
-                history_data.append({
-                    "Товар": p_name,
-                    "Тип": p_cat,
-                    "Введенное значение": r.current_weight
-                })
-            
-            df_history = pd.DataFrame(history_data)
-            st.dataframe(df_history, use_container_width=True)
-            
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                df_history.to_excel(writer, index=False, sheet_name='Переучет смены')
-            excel_data = output.getvalue()
-            
-            st.download_button(
-                label=f"📥 Скачать отчет за {selected_session_date} в формате Excel (.xlsx)",
-                data=excel_data,
-                file_name=f"inventory_report_{selected_session_date.replace(':', '-')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+                df_history = pd.DataFrame(history_data)
+                st.dataframe(df_history, use_container_width=True)
+                
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    df_history.to_excel(writer, index=False, sheet_name='Переучет смены')
+                excel_data = output.getvalue()
+                
+                st.download_button(
+                    label=f"📥 Скачать отчет за {selected_session_date} в формате Excel (.xlsx)",
+                    data=excel_data,
+                    file_name=f"inventory_report_{selected_session_date.replace(':', '-')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
     else:
         st.info("История переучетов пока пуста.")
     session.close()
 
 
-# --- СТРАНИЦА 3: СПРАВОЧНИК И УПРАВЛЕНИЕ ---
-elif page == "📚 Справочник и Управление":
-    st.title("📚 Справочник и Управление товарами")
+# --- СТРАНИЦА 3: СПРАВОЧНИК ---
+elif page == "📚 Справочник":
+    st.title("📚 Справочник продукции и расчет плотности")
     
     session = Session()
+
+    # --- РАСЧЕТ ПЛОТНОСТИ (ВСТРОЕН В СПРАВОЧНИК) ---
+    with st.expander("🧪 Автоматический расчет плотности напитка", expanded=False):
+        st.write("Введите данные бутылки в килограммах. Система рассчитает плотность и автоматически добавит или обновит позицию в справочнике.")
+        with st.form("density_calc_form"):
+            drink_name = st.text_input("Название напитка (например, Виски Jameson 0.7)")
+            total_weight = st.number_input("Общий вес (бутылка вместе с напитком, кг)", min_value=0.0, step=0.01)
+            volume_ml = st.number_input("Объем бутылки (мл)", min_value=0.0, step=10.0, value=750.0)
+            submit_calc = st.form_submit_button("Рассчитать и сохранить плотность")
+            
+            if submit_calc:
+                if not drink_name.strip():
+                    st.warning("Введите название напитка.")
+                elif total_weight <= 0 or volume_ml <= 0:
+                    st.warning("Введите корректные значения общего веса и объема.")
+                else:
+                    st.session_state["temp_drink_name"] = drink_name.strip()
+                    st.session_state["temp_total_weight"] = total_weight
+                    st.session_state["temp_volume_ml"] = volume_ml
+                    st.session_state["density_manual_needed"] = True
+
+        if st.session_state.get("density_manual_needed", False):
+            st.divider()
+            st.subheader("⚖️ Укажите вес пустой тары")
+            with st.form("manual_bottle_form"):
+                manual_tare = st.number_input("Вес пустой бутылки (кг)", min_value=0.0, step=0.001)
+                submit_manual = st.form_submit_button("Подтвердить и внести в Справочник")
+                
+                if submit_manual:
+                    d_name = st.session_state["temp_drink_name"]
+                    t_weight = st.session_state["temp_total_weight"]
+                    vol = st.session_state["temp_volume_ml"]
+                    
+                    net_weight = t_weight - manual_tare
+                    volume_l = vol / 1000.0
+                    density = net_weight / volume_l if volume_l > 0 else 1.0
+                    
+                    try:
+                        existing = session.query(Product).filter_by(name=d_name).first()
+                        if existing:
+                            existing.density = density
+                            existing.tare_weight = manual_tare
+                            existing.is_active = True
+                        else:
+                            new_p = Product(
+                                name=d_name,
+                                category="л",
+                                density=density,
+                                tare_weight=manual_tare,
+                                is_active=True
+                            )
+                            session.add(new_p)
+                        session.commit()
+                        st.success(f"✅ Товар '{d_name}' успешно внесен в Справочник! Плотность: {density:.3f} кг/л, Вес тары: {manual_tare} кг.")
+                        st.session_state["density_manual_needed"] = False
+                        session.close()
+                        st.rerun()
+                    except Exception as e:
+                        session.rollback()
+                        st.error(f"Ошибка сохранения: {e}")
+
+    st.divider()
     
     # --- 1. МАССОВАЯ ЗАГРУЗКА ИЗ ФАЙЛА ---
     st.header("📥 Загрузка справочника из таблицы")
@@ -438,11 +483,18 @@ elif page == "📚 Справочник и Управление":
 
     st.divider()
 
-    # --- 2. ИНТЕРАКТИВНЫЙ РЕДАКТОР ТАБЛИЦЫ ---
+    # --- 2. ИНТЕРАКТИВНЫЙ РЕДАКТОР ТАБЛИЦЫ С МГНОВЕННЫМ ПОИСКОМ ---
     st.header("✏️ Редактирование справочника на сайте")
-    st.write("Вы можете менять ячейки кликом (вес тары указывается в кг), добавлять новые строки внизу или управлять статусом активности товара.")
+    st.write("Используйте мгновенный поиск для фильтрации позиций перед редактированием.")
     
-    products = session.query(Product).order_by(Product.name.asc()).all()
+    catalog_search = st.text_input("🔍 Мгновенный поиск по справочнику", value="", placeholder="Введите название для фильтрации...").strip().lower()
+    
+    all_products_query = session.query(Product).order_by(Product.name.asc()).all()
+    
+    if catalog_search:
+        filtered_products = [p for p in all_products_query if catalog_search in p.name.lower()]
+    else:
+        filtered_products = all_products_query
     
     df_products = pd.DataFrame([{
         "id": p.id,
@@ -451,7 +503,7 @@ elif page == "📚 Справочник и Управление":
         "Плотность": p.density,
         "Вес тары (кг)": p.tare_weight,
         "Активен": p.is_active
-    } for p in products]) if products else pd.DataFrame(columns=["id", "Название", "Категория", "Плотность", "Вес тары (кг)", "Активен"])
+    } for p in filtered_products]) if filtered_products else pd.DataFrame(columns=["id", "Название", "Категория", "Плотность", "Вес тары (кг)", "Активен"])
     
     edited_df = st.data_editor(
         df_products, 
@@ -466,7 +518,7 @@ elif page == "📚 Справочник и Управление":
     
     if st.button("💾 Сохранить изменения в базе данных", type="primary"):
         try:
-            existing_ids = {p.id for p in products}
+            existing_ids = {p.id for p in all_products_query}
             current_ui_ids = set()
             
             for index, row in edited_df.iterrows():
@@ -502,7 +554,10 @@ elif page == "📚 Справочник и Управление":
                     session.flush()
                     current_ui_ids.add(new_prod.id)
             
-            for p in products:
+            for p in all_products_query:
+                # Если товар не был отфильтрован текущим поиском, сохраняем его текущий статус неизменным
+                if catalog_search and catalog_search not in p.name.lower():
+                    continue
                 if p.id not in current_ui_ids:
                     p.is_active = False
                     
@@ -516,11 +571,18 @@ elif page == "📚 Справочник и Управление":
             session.close()
             st.error(f"Ошибка при сохранении: {e}")
 
-    st.divider()
-    st.header("👤 Управление учетными записями")
+    session.close()
+
+
+# --- СТРАНИЦА 4: ЛИЧНЫЙ КАБИНЕТ ---
+elif page == "👤 Личный кабинет":
+    st.title("👤 Личный кабинет")
+    st.write("Управление учетными записями сотрудников и безопасность аккаунта.")
+    
+    session = Session()
     
     with st.form("change_password_form"):
-        st.subheader("Изменить пароль текущего аккаунта")
+        st.subheader("🔑 Изменить пароль текущего аккаунта")
         new_password = st.text_input("Новый пароль", type="password")
         confirm_password = st.text_input("Подтвердите новый пароль", type="password")
         submit_pass = st.form_submit_button("Обновить пароль")
@@ -537,8 +599,10 @@ elif page == "📚 Справочник и Управление":
             else:
                 st.warning("Пароли не совпадают или пусты.")
 
+    st.divider()
+
     with st.form("add_user_form"):
-        st.subheader("Добавить нового сотрудника")
+        st.subheader("👥 Добавить нового сотрудника")
         new_username = st.text_input("Логин нового пользователя")
         new_user_password = st.text_input("Пароль нового пользователя", type="password")
         submit_user = st.form_submit_button("Создать пользователя")
@@ -560,56 +624,3 @@ elif page == "📚 Справочник и Управление":
                 st.warning("Заполните логин и пароль.")
 
     session.close()
-
-
-# --- СТРАНИЦА 4: РАСЧЕТ ПЛОТНОСТИ НАПИТКА ---
-elif page == "🧪 Расчет плотности":
-    st.title("🧪 Автоматический расчет плотности напитка")
-    st.write("Введите данные бутылки в килограммах. Система проверит сетевые базы, а если данные отсутствуют — предложит ввести вес пустой тары вручную в кг, после чего автоматически внесет плотность в Справочник.")
-    
-    with st.form("density_calc_form"):
-        drink_name = st.text_input("Название напитка (например, Виски Jameson 0.7)")
-        total_weight = st.number_input("Общий вес (бутылка вместе с напитком, кг)", min_value=0.0, step=0.01)
-        volume_ml = st.number_input("Объем бутылки (мл)", min_value=0.0, step=10.0, value=750.0)
-        submit_calc = st.form_submit_button("Рассчитать плотность")
-        
-        if submit_calc:
-            if not drink_name.strip():
-                st.warning("Введите название напитка.")
-            elif total_weight <= 0 or volume_ml <= 0:
-                st.warning("Введите корректные значения общего веса и объема.")
-            else:
-                bottle_weight = search_bottle_weight_online(drink_name)
-                
-                if bottle_weight is None:
-                    st.info("🌐 В открытых источниках не удалось автоматически найти вес тары для этого напитка. Пожалуйста, взвесьте пустую бутылку и введите её вес в кг ниже.")
-                    st.session_state["manual_bottle_needed"] = True
-                    st.session_state["temp_drink_name"] = drink_name
-                    st.session_state["temp_total_weight"] = total_weight
-                    st.session_state["temp_volume_ml"] = volume_ml
-                else:
-                    net_weight = total_weight - bottle_weight
-                    volume_l = volume_ml / 1000.0
-                    density = net_weight / volume_l if volume_l > 0 else 1.0
-                    save_density_to_db(drink_name, density, bottle_weight)
-                    st.session_state["manual_bottle_needed"] = False
-
-    if st.session_state.get("manual_bottle_needed", False):
-        st.divider()
-        st.subheader("⚖️ Ручной ввод веса пустой тары")
-        with st.form("manual_bottle_form"):
-            manual_tare = st.number_input("Вес пустой бутылки (кг)", min_value=0.0, step=0.001)
-            submit_manual = st.form_submit_button("Сохранить и внести в справочник")
-            
-            if submit_manual:
-                d_name = st.session_state["temp_drink_name"]
-                t_weight = st.session_state["temp_total_weight"]
-                vol = st.session_state["temp_volume_ml"]
-                
-                net_weight = t_weight - manual_tare
-                volume_l = vol / 1000.0
-                density = net_weight / volume_l if volume_l > 0 else 1.0
-                
-                save_density_to_db(d_name, density, manual_tare)
-                st.session_state["manual_bottle_needed"] = False
-                st.rerun()
