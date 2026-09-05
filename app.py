@@ -333,8 +333,8 @@ elif page == "📊 История и Экспорт":
                 with col_del:
                     if st.button("🗑️ Удалить", key=f"del_rec_{date_str}", type="secondary"):
                         try:
-                            target_time = datetime.strptime(date_str, "%Y-%m-%d %H:%M")
-                            session.query(InventoryRecord).filter(InventoryRecord.checked_at == target_time).delete()
+                            record_ids = [r.id for r in session_records]
+                            session.query(InventoryRecord).filter(InventoryRecord.id.in_(record_ids)).delete(synchronize_session=False)
                             session.commit()
                             st.success(f"Переучет за {date_str} успешно удален!")
                             session.close()
