@@ -111,40 +111,50 @@ page = st.sidebar.radio(
 )
 
 # Проверяем, изменилась ли категория меню
-# Проверяем, изменилась ли категория меню
 if page != st.session_state.current_page:
     st.session_state.current_page = page
-    # Надежный скрипт с несколькими попытками перехвата кнопки сворачивания сайдбара
+    # Внедряем скрипт с имитацией настоящего клика мыши для React
     st.markdown("""
         <script>
+            function simulateClick(element) {
+                if (!element) return;
+                ['mousedown', 'mouseup', 'click'].forEach(eventType => {
+                    const event = new MouseEvent(eventType, {
+                        bubbles: true,
+                        cancelable: true,
+                        view: window
+                    });
+                    element.dispatchEvent(event);
+                });
+            }
+
             function tryCollapse() {
                 const doc = window.parent.document;
-                // Ищем по основному testid или иконке сворачивания
+                // Ищем кнопку сворачивания сайдбара по официальному testid Streamlit
                 const collapseBtn = doc.querySelector('[data-testid="stSidebarCollapseButton"] button') ||
-                                    doc.querySelector('[data-testid="stSidebarCollapseButton"]') ||
-                                    doc.querySelector('button[kind="header"]');
+                                    doc.querySelector('[data-testid="stSidebarCollapseButton"]');
                 
                 if (collapseBtn) {
-                    collapseBtn.click();
+                    simulateClick(collapseBtn);
                     return true;
                 }
                 
-                // Запасной поиск по всем кнопкам с текстом/меткой сжатия
+                // Запасной поиск по всем кнопкам с метками сворачивания
                 const buttons = doc.querySelectorAll('button');
                 for (let btn of buttons) {
                     const label = (btn.getAttribute('aria-label') || '').toLowerCase();
                     if (label.includes('collapse') || label.includes('свернуть') || label.includes('close')) {
-                        btn.click();
+                        simulateClick(btn);
                         return true;
                     }
                 }
                 return false;
             }
 
-            // Пробуем закрыть панель в несколько заходов, чтобы обогнать отрисовку Streamlit
-            setTimeout(tryCollapse, 100);
-            setTimeout(tryCollapse, 300);
-            setTimeout(tryCollapse, 600);
+            // Делаем несколько попыток с небольшой задержкой, чтобы успела пройти перерисовка интерфейса
+            setTimeout(tryCollapse, 150);
+            setTimeout(tryCollapse, 400);
+            setTimeout(tryCollapse, 800);
         </script>
     """, unsafe_allow_html=True)
 
