@@ -110,18 +110,6 @@ page = st.sidebar.radio(
 
 if page != st.session_state.current_page:
     st.session_state.current_page = page
-    st.markdown("""
-        <script>
-            setTimeout(function() {
-                const doc = window.parent.document;
-                const collapseBtn = doc.querySelector('[data-testid="stSidebarCollapseButton"] button') ||
-                                    doc.querySelector('[data-testid="stSidebarCollapseButton"]');
-                if (collapseBtn) {
-                    collapseBtn.click();
-                }
-            }, 200);
-        </script>
-    """, unsafe_allow_html=True)
 
 if st.sidebar.button("🚪 Выйти из системы", key="logout_button_sidebar"):
     st.session_state.authenticated = False
@@ -187,17 +175,18 @@ if page == "📝 Переучет продукции":
                         st.markdown(f"**{p.name}** <span style='font-size:12px; color:gray;'>({p.category})</span>", unsafe_allow_html=True)
                     
                     p_data = st.session_state.inv_data.get(p.id, {})
+                    is_075 = "0.75" in p.name or "0,75" in p.name
                     
                     if p.category == "шт":
                         with col_tare:
-                            st.empty() # Пусто для выравнивания
+                            st.empty()
                         with col_weight:
                             val_input = st.text_input(
                                 "Количество", 
                                 value=str(p_data.get("val_str", "")), 
                                 key=f"val_str_{p.id}",
                                 label_visibility="collapsed",
-                                placeholder="Кол-во"
+                                placeholder="Кол-во / формула"
                             )
                         val = evaluate_expression(val_input)
                         with col_res:
@@ -232,8 +221,13 @@ if page == "📝 Переучет продукции":
                             total_tare_weight = tare_count * p.tare_weight
                             net_result = 0.0
                             if p.category == "л":
-                                net_weight = total_weight - total_tare_weight if total_weight > total_tare_weight else 0.0
-                                net_result = net_weight / p.density if p.density > 0 else 0.0
+                                if is_075:
+                                    open_net = total_weight - total_tare_weight if total_weight > total_tare_weight else 0.0
+                                    open_vol = open_net / p.density if p.density > 0 else 0.0
+                                    net_result = (0.75 * tare_count) + open_vol
+                                else:
+                                    net_weight = total_weight - total_tare_weight if total_weight > total_tare_weight else 0.0
+                                    net_result = net_weight / p.density if p.density > 0 else 0.0
                             elif p.category == "кг":
                                 net_weight = total_weight - total_tare_weight if total_weight > total_tare_weight else total_weight
                                 net_result = net_weight if net_weight > 0 else 0.0
@@ -267,6 +261,7 @@ if page == "📝 Переучет продукции":
                 for p in completed_products:
                     d = st.session_state.inv_data.get(p.id, {})
                     res_str = ""
+                    is_075 = "0.75" in p.name or "0,75" in p.name
                     if p.category == "шт":
                         res_str = f"{d.get('val', 0)} шт"
                     else:
@@ -274,7 +269,13 @@ if page == "📝 Переучет продукции":
                         w_val = d.get("weight", 0.0) or 0.0
                         total_tare_weight = t_val * p.tare_weight
                         if p.category == "л":
-                            net = (w_val - total_tare_weight) / p.density if (w_val - total_tare_weight) > 0 and p.density > 0 else 0.0
+                            if is_075:
+                                open_net = (w_val - total_tare_weight) if (w_val - total_tare_weight) > 0 else 0.0
+                                open_vol = open_net / p.density if p.density > 0 else 0.0
+                                net = (0.75 * t_val) + open_vol
+                            else:
+                                net_kg = (w_val - total_tare_weight) if (w_val - total_tare_weight) > 0 else 0.0
+                                net = net_kg / p.density if p.density > 0 else 0.0
                         else:
                             net = (w_val - total_tare_weight) if total_tare_weight > 0 else w_val
                         res_str = f"{net:.3f} {p.category}"
