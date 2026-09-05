@@ -46,6 +46,8 @@ if "username" not in st.session_state:
     st.session_state.username = ""
 if "lang" not in st.session_state:
     st.session_state.lang = "ru"
+if "keep_completed_in_place" not in st.session_state:
+    st.session_state.keep_completed_in_place = False
 
 # --- ВЫБОР ЯЗЫКА В БОКОВОМ МЕНЮ ---
 selected_lang_label = st.sidebar.selectbox("🌍 Язык / Мова", ["Русский", "Українська"], index=0 if st.session_state.lang == "ru" else 1)
@@ -170,10 +172,16 @@ if page == t["p1"]:
         if not products:
             st.info("Ничего не найдено / Нічого не знайдено.")
         else:
-            uncompleted_products = [p for p in products if not is_completed(p)]
-            completed_products = [p for p in products if is_completed(p)]
+            if st.session_state.keep_completed_in_place:
+                # Режим: оставлять позиции на месте
+                render_products = products
+            else:
+                # Режим: шлагбаум (разделение на невыполненные и выполненные)
+                uncompleted_products = [p for p in products if not is_completed(p)]
+                completed_products = [p for p in products if is_completed(p)]
+                render_products = uncompleted_products
 
-            for p in uncompleted_products:
+            for p in render_products:
                 with st.container(border=True):
                     col_info, col_tare, col_weight, col_res = st.columns([2.2, 1, 1.2, 1.2], vertical_alignment="center")
                     
@@ -251,7 +259,8 @@ if page == t["p1"]:
                                 st.session_state.edit_mode.remove(p.id)
                             st.rerun()
 
-            if completed_products:
+            # Шлагбаум отображаем только если настройка "оставлять на месте" выключена
+            if not st.session_state.keep_completed_in_place and completed_products:
                 st.markdown(
                     f"""
                     <div style="display: flex; align-items: center; text-align: center; margin: 30px 0 20px 0;">
@@ -603,6 +612,15 @@ elif page == t["p3"]:
 elif page == t["p4"]:
     st.title(t["cabinet_title"])
     st.write(t["cabinet_desc"])
+
+    # --- НАСТРОЙКИ ИНТЕРФЕЙСА ---
+    st.subheader(t["settings_title"])
+    st.session_state.keep_completed_in_place = st.checkbox(
+        t["keep_in_place_label"],
+        value=st.session_state.keep_completed_in_place
+    )
+
+    st.divider()
     
     with st.expander("📖 Гайд / Посібник", expanded=False):
         st.markdown(t["guide_text"])
