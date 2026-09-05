@@ -536,7 +536,8 @@ elif page == t["p3"]:
     
     catalog_search = st.text_input(t["search_catalog"], value="", placeholder="...").strip().lower()
     
-    all_products_query = session.query(Product).order_by(Product.name.asc()).all()
+    # Сортируем: сначала активные (is_active DESC), затем по имени (name ASC)
+    all_products_query = session.query(Product).order_by(Product.is_active.desc(), Product.name.asc()).all()
     
     if catalog_search:
         filtered_products = [p for p in all_products_query if catalog_search in p.name.lower()]
@@ -552,8 +553,16 @@ elif page == t["p3"]:
         "Активен": p.is_active
     } for p in filtered_products]) if filtered_products else pd.DataFrame(columns=["id", "Название", "Категория", "Плотность", "Вес тары (кг)", "Активен"])
     
+    # Функция для визуального оформления: неактивные строки делаем бледными и прозрачными
+    def highlight_inactive(row):
+        if not row["Активен"]:
+            return ['color: #999999; background-color: rgba(200, 200, 200, 0.15);'] * len(row)
+        return [''] * len(row)
+
+    styled_df = df_products.style.apply(highlight_inactive, axis=1)
+
     edited_df = st.data_editor(
-        df_products, 
+        styled_df, 
         hide_index=True,
         num_rows="dynamic",
         column_config={
@@ -618,7 +627,6 @@ elif page == t["p3"]:
             st.error(f"Error: {e}")
 
     session.close()
-
 # --- СТРАНИЦА 4: ЛИЧНЫЙ КАБИНЕТ ---
 elif page == t["p4"]:
     st.title(t["cabinet_title"])
